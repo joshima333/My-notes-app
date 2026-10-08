@@ -1,0 +1,75 @@
+<!doctype html>
+<html lang="it">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<meta name="theme-color" content="#6b4ce6">
+<title>Note Vocali</title>
+<link rel="manifest" href="manifest.json">
+<link rel="icon" href="icon.svg">
+<link rel="apple-touch-icon" href="icon.svg">
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+<header>
+  <h1>🎙️ Note Vocali</h1>
+  <button id="btnSettings" class="icon" aria-label="Impostazioni">⚙️</button>
+</header>
+
+<main>
+  <section id="recorder" class="card">
+    <label>Tipo di nota
+      <select id="category"></select>
+    </label>
+    <button id="btnRec" class="rec">● Registra</button>
+    <div id="timer" class="muted">00:00</div>
+    <div id="live" class="live" contenteditable="false"></div>
+    <p id="support" class="warn hidden"></p>
+  </section>
+
+  <section>
+    <div class="filters">
+      <input id="search" type="search" placeholder="Cerca nelle note…">
+      <select id="filterCat"><option value="">Tutte</option></select>
+    </div>
+    <ul id="notes"></ul>
+  </section>
+</main>
+
+<dialog id="noteDlg">
+  <form method="dialog" class="dlg">
+    <input id="noteTitle" placeholder="Titolo">
+    <select id="noteCat"></select>
+    <audio id="noteAudio" controls class="hidden"></audio>
+    <div id="noteSummary" class="summary hidden"></div>
+    <textarea id="noteText" rows="10"></textarea>
+    <div class="row">
+      <button type="button" id="btnSummary">✨ Riassunto AI</button>
+      <button type="button" id="btnCopy">📋 Copia</button>
+      <button type="button" id="btnShare">📤 Condividi</button>
+      <button type="button" id="btnDownload">⬇️ .txt</button>
+    </div>
+    <div class="row">
+      <button type="button" id="btnDelete" class="danger">🗑️ Elimina</button>
+      <button type="button" id="btnSave" class="primary">Salva</button>
+    </div>
+  </form>
+</dialog>
+
+<dialog id="settingsDlg">
+  <form method="dialog" class="dlg">
+    <h2>Impostazioni</h2>
+    <label>Chiave API Claude (solo per il riassunto AI)
+      <input id="apiKey" type="password" placeholder="sk-ant-…" autocomplete="off">
+    </label>
+    <p class="muted small">Resta salvata solo su questo dispositivo. Creala su console.anthropic.com.</p>
+    <label>Tipi di nota (uno per riga)
+      <textarea id="catsInput" rows="6"></textarea>
+    </label>
+    <div class="row"><button id="btnSaveSettings" class="primary">Salva</button></div>
+  </form>
+</dialog>
+
+<script src="app.js"></script>
+</body>
+</html>
