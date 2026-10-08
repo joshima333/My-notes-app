@@ -3,6 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' https://cdn.jsdelivr.net 'wasm-unsafe-eval'; worker-src 'self' blob: https://cdn.jsdelivr.net; connect-src 'self' https://cdn.jsdelivr.net https://huggingface.co https://*.huggingface.co https://*.hf.co; img-src 'self' data: blob:; media-src 'self' blob:; style-src 'self' 'unsafe-inline'">
 <meta name="theme-color" content="#c9d6ff">
 <title>Note Vocali</title>
 <link rel="manifest" href="manifest.json">
@@ -24,7 +25,7 @@
     <button id="btnRec" class="rec">● Registra</button>
     <div id="timer" class="muted">00:00</div>
     <div id="live" class="live" contenteditable="false"></div>
-    <p id="support" class="warn hidden"></p>
+    <p id="status" class="status hidden"></p>
   </section>
 
   <section>
@@ -41,10 +42,8 @@
     <input id="noteTitle" placeholder="Titolo">
     <select id="noteCat"></select>
     <audio id="noteAudio" controls class="hidden"></audio>
-    <div id="noteSummary" class="summary hidden"></div>
     <textarea id="noteText" rows="10"></textarea>
     <div class="row">
-      <button type="button" id="btnSummary">✨ Riassunto AI</button>
       <button type="button" id="btnCopy">📋 Copia</button>
       <button type="button" id="btnShare">📤 Condividi</button>
       <button type="button" id="btnDownload">⬇️ .txt</button>
@@ -59,16 +58,29 @@
 <dialog id="settingsDlg">
   <form method="dialog" class="dlg">
     <h2>Impostazioni</h2>
-    <label>Chiave API Claude (solo per il riassunto AI)
-      <input id="apiKey" type="password" placeholder="sk-ant-…" autocomplete="off">
+    <p id="privacyInfo" class="summary small"></p>
+    <label>Qualità trascrizione sul telefono
+      <select id="model">
+        <option value="Xenova/whisper-small">Alta (~250 MB, più lenta)</option>
+        <option value="Xenova/whisper-base">Veloce (~80 MB, meno precisa)</option>
+      </select>
     </label>
-    <p class="muted small">Resta salvata solo su questo dispositivo. Creala su console.anthropic.com.</p>
+    <button type="button" id="btnPin">🔒 Cambia PIN</button>
     <label>Tipi di nota (uno per riga)
       <textarea id="catsInput" rows="6"></textarea>
     </label>
     <div class="row"><button id="btnSaveSettings" class="primary">Salva</button></div>
   </form>
 </dialog>
+
+<div id="lock" class="lock hidden">
+  <form id="lockForm" class="card lockcard">
+    <div class="lockicon">🔒</div>
+    <p id="lockMsg">Inserisci il PIN</p>
+    <input id="pinInput" type="password" inputmode="numeric" pattern="[0-9]*" maxlength="8" autocomplete="off">
+    <button class="primary">Sblocca</button>
+  </form>
+</div>
 
 <script src="app.js"></script>
 </body>

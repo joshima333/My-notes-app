@@ -27,8 +27,8 @@ const DEFAULT_CATS = ['Idee', 'Lavoro', 'Diario', 'Spesa', 'Salute', 'Promemoria
 const settings = {
   get cats() { try { return JSON.parse(localStorage.cats) } catch { return DEFAULT_CATS } },
   set cats(v) { localStorage.cats = JSON.stringify(v) },
-  get key() { return localStorage.apiKey || '' },
-  set key(v) { localStorage.apiKey = v },
+  get model() { return localStorage.model || 'Xenova/whisper-small' },
+  set model(v) { localStorage.model = v },
 };
 
 // ---------- Categories UI ----------
@@ -40,29 +40,44 @@ function fillCats() {
 }
 const esc = s => s.replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
 
-// ---------- Recording + live transcription ----------
+// ---------- Recording + private transcription ----------
+// Mai server esterni: o riconoscimento vocale *locale* del browser (Chrome recenti),
+// oppure Whisper eseguito sul telefono (whisper-worker.js).
 const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
-if (!SR) {
-  $('support').textContent = 'Questo browser non supporta la trascrizione. Usa Chrome (Android) o Safari (iPhone).';
-  $('support').classList.remove('hidden');
+const LOCAL_OPTS = { langs: ['it-IT'], processLocally: true };
+let liveLocal = false;
+
+async function checkLocalSR() {
+  if (!SR || typeof SR.available !== 'function') return false;
+  try {
+    const st = await SR.available(LOCAL_OPTS);
+    if (st === 'available') return true;
+    if (st === 'downloadable' || st === 'downloading') SR.install(LOCAL_OPTS).catch(() => {});
+  } catch {}
+  return false;
 }
+const setStatus = t => { $('status').textContent = t; $('status').classList.toggle('hidden', !t); };
 
 let rec = null, media = null, chunks = [], finalText = '', recording = false, t0 = 0, tick;
 
 async function start() {
   finalText = ''; chunks = [];
   $('live').innerHTML = '';
-  // Audio recording (optional: if it fails we keep the transcription)
+  liveLocal = await checkLocalSR();
   try {
     const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
     media = new MediaRecorder(stream);
     media.ondataavailable = e => e.data.size && chunks.push(e.data);
     media.start(1000);
-  } catch (e) { media = null; }
+  } catch (e) {
+    media = null;
+    if (!liveLocal) return alert('Impossibile usare il microfono: controlla i permessi.');
+  }
 
-  if (SR) {
+  if (liveLocal) {
     rec = new SR();
     rec.lang = 'it-IT';
+    rec.processLocally = true;
     rec.continuous = true;
     rec.interimResults = true;
     rec.onresult = e => {
@@ -74,10 +89,10 @@ async function start() {
       }
       $('live').innerHTML = esc(finalText) + `<span class="interim">${esc(interim)}</span>`;
     };
-    // Mobile browsers stop after silence: restart while recording
     rec.onend = () => { if (recording) try { rec.start() } catch {} };
-    rec.onerror = e => { if (e.error === 'not-allowed') alert('Permesso microfono negato.'); };
     rec.start();
+  } else {
+    $('live').innerHTML = '<span class="interim">Sto registrando… il testo apparirà dopo lo stop.</span>';
   }
   recording = true;
   t0 = Date.now();
@@ -94,27 +109,80 @@ async function stop() {
   clearInterval(tick);
   $('btnRec').textContent = '● Registra';
   $('btnRec').classList.remove('on');
-  if (rec) { rec.onend = null; rec.stop(); }
+  if (rec) { rec.onend = null; rec.stop(); rec = null; }
   let audio = null;
   if (media) {
     await new Promise(r => { media.onstop = r; media.stop(); });
     media.stream.getTracks().forEach(t => t.stop());
     if (chunks.length) audio = new Blob(chunks, { type: media.mimeType || 'audio/webm' });
+    media = null;
   }
-  // Small delay so the last final result can arrive
   await new Promise(r => setTimeout(r, 600));
   const text = finalText.trim();
+  $('live').innerHTML = '';
   if (!text && !audio) return;
+  const pending = !text && !!audio;
   const note = {
     id: crypto.randomUUID(), created: Date.now(),
     category: $('category').value,
-    title: text ? text.split(/\s+/).slice(0, 6).join(' ') + (text.split(/\s+/).length > 6 ? '…' : '') : 'Nota vocale',
-    text, audio, summary: '', duration: Math.round((Date.now() - t0) / 1000),
+    title: text ? makeTitle(text) : 'Nota vocale',
+    text, audio, pending, duration: Math.round((Date.now() - t0) / 1000),
   };
   await DB.put(note);
-  $('live').innerHTML = '';
   render();
-  openNote(note);
+  if (pending) transcribe(note); else openNote(note);
+}
+const makeTitle = t => { const w = t.split(/\s+/); return w.slice(0, 6).join(' ') + (w.length > 6 ? '…' : ''); };
+
+// ---------- Whisper on-device ----------
+let worker = null;
+const queue = [];
+let busy = false;
+
+async function to16kMono(blob) {
+  const ctx = new (window.AudioContext || window.webkitAudioContext)();
+  const dec = await ctx.decodeAudioData(await blob.arrayBuffer());
+  ctx.close();
+  const off = new OfflineAudioContext(1, Math.ceil(dec.duration * 16000), 16000);
+  const src = off.createBufferSource();
+  src.buffer = dec; src.connect(off.destination); src.start();
+  return (await off.startRendering()).getChannelData(0);
+}
+
+function transcribe(note) {
+  if (!queue.some(n => n.id === note.id)) queue.push(note);
+  nextJob();
+}
+async function nextJob() {
+  if (busy || !queue.length) return;
+  busy = true;
+  const note = queue[0];
+  try {
+    if (!worker) worker = new Worker('whisper-worker.js', { type: 'module' });
+    setStatus('⏳ Preparo l\'audio…');
+    const audio = await to16kMono(note.audio);
+    const text = await new Promise((res, rej) => {
+      worker.onerror = () => { worker = null; rej(new Error('modello non caricato, controlla la connessione')); };
+      worker.onmessage = ({ data: m }) => {
+        if (m.type === 'progress') setStatus(`⬇️ Scarico il modello (solo la prima volta)… ${Math.round(m.progress || 0)}%`);
+        else if (m.type === 'working') setStatus('✍️ Trascrivo sul telefono…');
+        else if (m.type === 'done') res(m.text);
+        else if (m.type === 'error') rej(new Error(m.error));
+      };
+      worker.postMessage({ id: note.id, audio, model: settings.model }, [audio.buffer]);
+    });
+    Object.assign(note, { text, pending: false, title: note.title === 'Nota vocale' && text ? makeTitle(text) : note.title });
+    await DB.put(note);
+    render();
+    if (!$('noteDlg').open && !locked) openNote(note);
+  } catch (e) {
+    setStatus('⚠️ Trascrizione non riuscita: ' + e.message);
+    queue.shift(); busy = false;
+    return;
+  }
+  queue.shift(); busy = false;
+  setStatus('');
+  nextJob();
 }
 
 $('btnRec').onclick = () => recording ? stop() : start();
@@ -131,7 +199,7 @@ async function render() {
         <span>${new Date(n.created).toLocaleString('it-IT', { dateStyle: 'short', timeStyle: 'short' })}</span>
         ${n.audio ? '<span>🔊</span>' : ''}</div>
       <div class="t">${esc(n.title)}</div>
-      <div class="p">${esc(n.summary || n.text)}</div>
+      <div class="p">${n.pending ? '⏳ Trascrizione in corso…' : esc(n.text)}</div>
     </li>`).join('') : '<p class="muted">Nessuna nota. Premi Registra e parla!</p>';
 }
 $('notes').onclick = async e => {
@@ -151,11 +219,9 @@ function openNote(n) {
   if (audioURL) URL.revokeObjectURL(audioURL);
   if (n.audio) { audioURL = URL.createObjectURL(n.audio); $('noteAudio').src = audioURL; }
   $('noteAudio').classList.toggle('hidden', !n.audio);
-  $('noteSummary').textContent = n.summary ? '✨ ' + n.summary : '';
-  $('noteSummary').classList.toggle('hidden', !n.summary);
   $('noteDlg').showModal();
 }
-const exportText = () => `${$('noteTitle').value}\n[${$('noteCat').value}]\n\n${current.summary ? 'Riassunto:\n' + current.summary + '\n\n' : ''}${$('noteText').value}`;
+const exportText = () => `${$('noteTitle').value}\n[${$('noteCat').value}]\n\n${$('noteText').value}`;
 
 $('btnSave').onclick = async () => {
   Object.assign(current, { title: $('noteTitle').value, category: $('noteCat').value, text: $('noteText').value });
@@ -177,54 +243,71 @@ $('btnDownload').onclick = () => {
   a.click();
 };
 
-// ---------- AI summary (Claude API, key stored locally) ----------
-$('btnSummary').onclick = async () => {
-  const text = $('noteText').value.trim();
-  if (!text) return alert('Nessun testo da riassumere.');
-  if (!settings.key) { alert('Inserisci la chiave API Claude nelle impostazioni ⚙️'); return openSettings(); }
-  const btn = $('btnSummary'); btn.disabled = true; btn.textContent = '⏳ …';
-  try {
-    const r = await fetch('https://api.anthropic.com/v1/messages', {
-      method: 'POST',
-      headers: {
-        'content-type': 'application/json',
-        'x-api-key': settings.key,
-        'anthropic-version': '2023-06-01',
-        'anthropic-dangerous-direct-browser-access': 'true',
-      },
-      body: JSON.stringify({
-        model: 'claude-haiku-5-5',
-        max_tokens: 400,
-        messages: [{ role: 'user', content:
-          'Questa è la trascrizione di una nota vocale in italiano (può contenere errori di riconoscimento). ' +
-          'Rispondi SOLO in JSON: {"titolo": "max 6 parole", "riassunto": "2-4 punti elenco brevi con •, includi eventuali cose da fare"}.\n\n' + text }],
-      }),
-    });
-    const data = await r.json();
-    if (!r.ok) throw new Error(data.error?.message || r.status);
-    const raw = data.content[0].text, json = JSON.parse(raw.slice(raw.indexOf('{'), raw.lastIndexOf('}') + 1));
-    current.summary = json.riassunto;
-    $('noteTitle').value = json.titolo;
-    $('noteSummary').textContent = '✨ ' + json.riassunto;
-    $('noteSummary').classList.remove('hidden');
-  } catch (e) { alert('Errore riassunto: ' + e.message); }
-  btn.disabled = false; btn.textContent = '✨ Riassunto AI';
-};
-
 // ---------- Settings ----------
 function openSettings() {
-  $('apiKey').value = settings.key;
+  $('model').value = settings.model;
+  $('privacyInfo').textContent = liveLocalInfo;
   $('catsInput').value = settings.cats.join('\n');
   $('settingsDlg').showModal();
 }
 $('btnSettings').onclick = openSettings;
 $('btnSaveSettings').onclick = () => {
-  settings.key = $('apiKey').value.trim();
+  settings.model = $('model').value;
   const cats = $('catsInput').value.split('\n').map(s => s.trim()).filter(Boolean);
   settings.cats = cats.length ? cats : DEFAULT_CATS;
   fillCats(); render();
 };
 
+// ---------- PIN lock ----------
+let locked = true, pinStep = null, firstPin = '';
+const hash = async pin => {
+  if (!localStorage.pinSalt) localStorage.pinSalt = crypto.randomUUID();
+  const d = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(localStorage.pinSalt + pin));
+  return [...new Uint8Array(d)].map(b => b.toString(16).padStart(2, '0')).join('');
+};
+function lock(step) {
+  locked = true;
+  pinStep = step || (localStorage.pinHash ? 'unlock' : 'new');
+  $('lockMsg').textContent = pinStep === 'unlock' ? 'Inserisci il PIN' : 'Crea un PIN (4-8 cifre)';
+  $('notes').innerHTML = '';
+  $('noteDlg').open && $('noteDlg').close();
+  $('settingsDlg').open && $('settingsDlg').close();
+  $('lock').classList.remove('hidden');
+  $('pinInput').value = '';
+  setTimeout(() => $('pinInput').focus(), 50);
+}
+function unlock() { locked = false; $('lock').classList.add('hidden'); render(); }
+$('lockForm').onsubmit = async e => {
+  e.preventDefault();
+  const pin = $('pinInput').value;
+  $('pinInput').value = '';
+  if (pinStep === 'unlock') {
+    if (await hash(pin) === localStorage.pinHash) unlock();
+    else $('lockMsg').textContent = 'PIN errato, riprova';
+  } else if (pinStep === 'new') {
+    if (!/^\d{4,8}$/.test(pin)) return $('lockMsg').textContent = 'Il PIN deve avere 4-8 cifre';
+    firstPin = pin; pinStep = 'confirm'; $('lockMsg').textContent = 'Ripeti il PIN';
+  } else if (pinStep === 'confirm') {
+    if (pin !== firstPin) { pinStep = 'new'; return $('lockMsg').textContent = 'Non coincidono. Crea un PIN (4-8 cifre)'; }
+    localStorage.pinHash = await hash(pin);
+    unlock();
+  }
+};
+$('btnPin').onclick = () => lock('new');
+document.addEventListener('visibilitychange', () => { if (document.hidden && !locked) lock(); });
+
+// ---------- Privacy info ----------
+let liveLocalInfo = '';
+checkLocalSR().then(ok => {
+  liveLocalInfo = '🔐 Note e audio restano solo su questo telefono. ' + (ok
+    ? 'Trascrizione in diretta eseguita sul telefono.'
+    : 'Trascrizione eseguita sul telefono con Whisper, dopo lo stop. Da internet si scarica solo il modello, una volta.');
+});
+
+if (navigator.storage?.persist) navigator.storage.persist();
 fillCats();
-render();
+lock();
+// Riprende trascrizioni rimaste a metà
+DB.all().then(ns => ns.filter(n => n.pending && n.audio).forEach(transcribe));
+
 if ('serviceWorker' in navigator) navigator.serviceWorker.register('sw.js');
