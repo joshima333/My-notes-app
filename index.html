@@ -3,8 +3,9 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
-<meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' https://cdn.jsdelivr.net 'wasm-unsafe-eval'; worker-src 'self' blob: https://cdn.jsdelivr.net; connect-src 'self' https://cdn.jsdelivr.net https://huggingface.co https://*.huggingface.co https://*.hf.co; img-src 'self' data: blob:; media-src 'self' blob:; style-src 'self' 'unsafe-inline'">
+<meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' https://cdn.jsdelivr.net 'wasm-unsafe-eval'; worker-src 'self' blob: https://cdn.jsdelivr.net; connect-src 'self' https://cdn.jsdelivr.net https://huggingface.co https://*.huggingface.co https://*.hf.co https://*.supabase.co wss://*.supabase.co; img-src 'self' data: blob:; media-src 'self' blob:; style-src 'self' 'unsafe-inline'">
 <meta name="theme-color" content="#c9d6ff">
+<meta name="apple-mobile-web-app-capable" content="yes">
 <title>Note Vocali</title>
 <link rel="manifest" href="manifest.json">
 <link rel="icon" href="icon.svg">
@@ -14,26 +15,31 @@
 <body>
 <header>
   <h1>🎙️ Note Vocali</h1>
+  <span id="syncIcon" class="sync" title="Sincronizzazione"></span>
   <button id="btnSettings" class="icon" aria-label="Impostazioni">⚙️</button>
 </header>
 
 <main>
   <section id="recorder" class="card">
-    <label>Tipo di nota
-      <select id="category"></select>
-    </label>
+    <div id="chips" class="chips" role="radiogroup" aria-label="Raccolta"></div>
     <button id="btnRec" class="rec">● Registra</button>
     <div id="timer" class="muted">00:00</div>
-    <div id="live" class="live" contenteditable="false"></div>
+    <div id="live" class="live"></div>
     <p id="status" class="status hidden"></p>
   </section>
 
-  <section>
-    <div class="filters">
-      <input id="search" type="search" placeholder="Cerca nelle note…">
-      <select id="filterCat"><option value="">Tutte</option></select>
+  <section id="home">
+    <input id="search" type="search" placeholder="Cerca in tutte le note…">
+    <div id="folders" class="folders"></div>
+    <ul id="results" class="notes hidden"></ul>
+  </section>
+
+  <section id="folderView" class="hidden">
+    <div class="folderhead">
+      <button id="btnBack" class="back">‹ Raccolte</button>
+      <h2 id="folderTitle"></h2>
     </div>
-    <ul id="notes"></ul>
+    <ul id="notes" class="notes"></ul>
   </section>
 </main>
 
@@ -42,6 +48,7 @@
     <input id="noteTitle" placeholder="Titolo">
     <select id="noteCat"></select>
     <audio id="noteAudio" controls class="hidden"></audio>
+    <button type="button" id="btnLoadAudio" class="hidden">🔊 Scarica audio</button>
     <textarea id="noteText" rows="10"></textarea>
     <div class="row">
       <button type="button" id="btnRetry" class="hidden">🔁 Riprova trascrizione</button>
@@ -59,6 +66,10 @@
 <dialog id="settingsDlg">
   <form method="dialog" class="dlg">
     <h2>Impostazioni</h2>
+    <div id="accountBox" class="summary small hidden">
+      <div>👤 <b id="accountEmail"></b></div>
+      <div id="syncText" class="muted"></div>
+    </div>
     <p id="privacyInfo" class="summary small"></p>
     <label id="modelRow">Qualità trascrizione sul telefono
       <select id="model">
@@ -66,17 +77,27 @@
         <option value="Xenova/whisper-base">Veloce (~80 MB, meno precisa)</option>
       </select>
     </label>
-    <button type="button" id="btnFaceIdSetup">🙂 Attiva Face ID</button>
-    <button type="button" id="btnPin">🔒 Cambia PIN</button>
-    <label>Tipi di nota (uno per riga)
+    <label>Raccolte (una per riga)
       <textarea id="catsInput" rows="6"></textarea>
     </label>
+    <button type="button" id="btnFaceIdSetup">🙂 Attiva Face ID</button>
+    <button type="button" id="btnPin">🔒 Cambia PIN</button>
+    <button type="button" id="btnLogout" class="danger hidden">Esci dall'account</button>
     <div class="row"><button id="btnSaveSettings" class="primary">Salva</button></div>
   </form>
 </dialog>
 
 <div id="lock" class="lock hidden">
-  <form id="lockForm" class="card lockcard">
+  <form id="authForm" class="card lockcard hidden">
+    <div class="lockicon">☁️</div>
+    <p id="authMsg">Accedi per ritrovare le tue note su ogni dispositivo</p>
+    <input id="authEmail" type="email" placeholder="Email" autocomplete="username" required>
+    <input id="authPass" type="password" placeholder="Password" autocomplete="current-password" required minlength="6">
+    <button class="primary" id="btnLogin">Accedi</button>
+    <button type="button" id="btnSignup">Crea account</button>
+    <p class="muted small">🔐 Le note sono cifrate con la tua password: se la dimentichi non si possono recuperare.</p>
+  </form>
+  <form id="lockForm" class="card lockcard hidden">
     <div class="lockicon">🔒</div>
     <p id="lockMsg">Inserisci il PIN</p>
     <input id="pinInput" type="password" inputmode="numeric" pattern="[0-9]*" maxlength="8" autocomplete="off">
@@ -85,6 +106,10 @@
   </form>
 </div>
 
+<script src="config.js"></script>
+<script src="vendor/supabase.js"></script>
+<script src="db.js"></script>
+<script src="cloud.js"></script>
 <script src="app.js"></script>
 </body>
 </html>

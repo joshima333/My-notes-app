@@ -1,46 +1,47 @@
-// ---------- Storage (IndexedDB) ----------
-const DB = (() => {
-  let db;
-  const open = () => db ? Promise.resolve(db) : new Promise((res, rej) => {
-    const r = indexedDB.open('note-vocali', 1);
-    r.onupgradeneeded = () => r.result.createObjectStore('notes', { keyPath: 'id' });
-    r.onsuccess = () => res(db = r.result);
-    r.onerror = () => rej(r.error);
-  });
-  const tx = async (mode, fn) => {
-    const d = await open();
-    return new Promise((res, rej) => {
-      const t = d.transaction('notes', mode), req = fn(t.objectStore('notes'));
-      t.oncomplete = () => res(req && req.result);
-      t.onerror = () => rej(t.error);
-    });
-  };
-  return {
-    all: () => tx('readonly', s => s.getAll()),
-    put: n => tx('readwrite', s => s.put(n)),
-    del: id => tx('readwrite', s => s.delete(id)),
-  };
-})();
-
 const $ = id => document.getElementById(id);
-const DEFAULT_CATS = ['Idee', 'Lavoro', 'Diario', 'Spesa', 'Salute', 'Promemoria'];
+const esc = s => String(s ?? '').replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
 const IS_IOS = /iPad|iPhone|iPod/.test(navigator.userAgent) || (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
+const DEFAULT_CATS = ['Idee', 'Brainstorming', 'Lavoro', 'Diario', 'Spesa', 'Salute', 'Promemoria'];
 const settings = {
-  get cats() { try { return JSON.parse(localStorage.cats) } catch { return DEFAULT_CATS } },
-  set cats(v) { localStorage.cats = JSON.stringify(v) },
+  get cats() { try { const c = JSON.parse(localStorage.cats); return c.length ? c : DEFAULT_CATS } catch { return DEFAULT_CATS } },
+  set cats(v) { localStorage.cats = JSON.stringify(v); localStorage.catsUpdated = Date.now(); Cloud.schedule && Cloud.schedule(); },
   // iPhone: modello leggero di default (Safari ha poca memoria per le web app)
   get model() { return localStorage.model || (IS_IOS ? 'Xenova/whisper-base' : 'Xenova/whisper-small') },
   set model(v) { localStorage.model = v },
 };
 
-// ---------- Categories UI ----------
-function fillCats() {
-  const opts = settings.cats.map(c => `<option>${esc(c)}</option>`).join('');
-  $('category').innerHTML = opts;
-  $('noteCat').innerHTML = opts;
-  $('filterCat').innerHTML = '<option value="">Tutte</option>' + opts;
+// Ogni modifica fatta dall'utente passa da qui: salva in locale e sincronizza
+async function saveNote(n) {
+  n.updated = Date.now(); n.dirty = true;
+  await DB.put(n); render(); Cloud.schedule();
 }
-const esc = s => s.replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
+
+// ---------- Raccolte ----------
+const EMOJI = { idee: '💡', brainstorming: '🧠', lavoro: '💼', diario: '📔', spesa: '🛒', salute: '🩺', promemoria: '⏰', studio: '📚', casa: '🏠', viaggi: '✈️', ricette: '🍳', sport: '🏃' };
+const emoji = c => EMOJI[c.toLowerCase()] || '📁';
+const HUES = [250, 320, 160, 30, 200, 280, 0, 120, 50, 340];
+const hue = c => HUES[Math.abs([...c].reduce((h, ch) => h * 31 + ch.charCodeAt(0) | 0, 7)) % HUES.length];
+const selCat = () => settings.cats.includes(localStorage.selCat) ? localStorage.selCat : settings.cats[0];
+
+function fillCats() {
+  const sel = selCat();
+  $('chips').innerHTML = settings.cats.map(c =>
+    `<button type="button" class="chip${c === sel ? ' on' : ''}" style="--h:${hue(c)}" data-cat="${esc(c)}" role="radio" aria-checked="${c === sel}">${emoji(c)} ${esc(c)}</button>`
+  ).join('') + '<button type="button" class="chip add" id="chipAdd" aria-label="Nuova raccolta">＋</button>';
+  $('noteCat').innerHTML = settings.cats.map(c => `<option>${esc(c)}</option>`).join('');
+  const on = $('chips').querySelector('.on');
+  if (on) $('chips').scrollLeft = on.offsetLeft - ($('chips').clientWidth - on.offsetWidth) / 2;
+}
+$('chips').onclick = e => {
+  const b = e.target.closest('.chip'); if (!b) return;
+  if (b.id === 'chipAdd') {
+    const name = (prompt('Nome della nuova raccolta:') || '').trim();
+    if (!name) return;
+    if (!settings.cats.includes(name)) settings.cats = [...settings.cats, name];
+    localStorage.selCat = name;
+  } else localStorage.selCat = b.dataset.cat;
+  fillCats(); render();
+};
 
 // ---------- Recording + private transcription ----------
 // Mai server esterni: o riconoscimento vocale *locale* del browser (Chrome recenti),
@@ -138,12 +139,11 @@ async function stop() {
   const pending = !text && !!audio;
   const note = {
     id: crypto.randomUUID(), created: Date.now(),
-    category: $('category').value,
+    category: selCat(),
     title: text ? makeTitle(text) : 'Nota vocale',
     text, audio, pending, duration: Math.round((Date.now() - t0) / 1000),
   };
-  await DB.put(note);
-  render();
+  await saveNote(note);
   if (pending) transcribe(note); else openNote(note);
 }
 const makeTitle = t => { const w = t.split(/\s+/); return w.slice(0, 6).join(' ') + (w.length > 6 ? '…' : ''); };
@@ -172,7 +172,7 @@ async function to16kMono(blob) {
 
 function transcribe(note) {
   if (IS_IOS) { // Whisper fa chiudere Safari su iPhone
-    Object.assign(note, { pending: false, failed: true }); DB.put(note).then(render);
+    Object.assign(note, { pending: false, failed: true }); saveNote(note);
     return;
   }
   if (!queue.some(n => n.id === note.id)) queue.push(note);
@@ -186,7 +186,7 @@ async function nextJob() {
   if (note.attempts > 2) {
     // Già fallita due volte (es. il telefono ha chiuso la pagina per memoria): non riprovare in loop
     Object.assign(note, { pending: false, failed: true });
-    await DB.put(note); queue.shift(); busy = false; render();
+    await saveNote(note); queue.shift(); busy = false;
     setStatus('⚠️ Trascrizione non riuscita. Apri la nota e premi "Riprova", oppure scegli qualità "Veloce" in ⚙️.');
     return nextJob();
   }
@@ -206,8 +206,7 @@ async function nextJob() {
       worker.postMessage({ id: note.id, audio, model: settings.model }, [audio.buffer]);
     });
     Object.assign(note, { text, pending: false, failed: false, attempts: 0, title: note.title === 'Nota vocale' && text ? makeTitle(text) : note.title });
-    await DB.put(note);
-    render();
+    await saveNote(note);
     if (!$('noteDlg').open && !locked) openNote(note);
   } catch (e) {
     setStatus('⚠️ Trascrizione non riuscita: ' + e.message);
@@ -221,54 +220,100 @@ async function nextJob() {
 
 $('btnRec').onclick = () => recording ? stop() : start();
 
-// ---------- List ----------
-async function render() {
-  const q = $('search').value.toLowerCase(), cat = $('filterCat').value;
-  const notes = (await DB.all())
-    .filter(n => (!cat || n.category === cat) && (!q || (n.title + ' ' + n.text).toLowerCase().includes(q)))
-    .sort((a, b) => b.created - a.created);
-  $('notes').innerHTML = notes.length ? notes.map(n => `
-    <li data-id="${n.id}">
-      <div class="meta"><span class="tag">${esc(n.category)}</span>
-        <span>${new Date(n.created).toLocaleString('it-IT', { dateStyle: 'short', timeStyle: 'short' })}</span>
-        ${n.audio ? '<span>🔊</span>' : ''}</div>
-      <div class="t">${esc(n.title)}</div>
-      <div class="p">${n.pending ? '⏳ Trascrizione in corso…' : n.failed ? '⚠️ Trascrizione non riuscita: apri per riprovare' : esc(n.text)}</div>
-    </li>`).join('') : '<p class="muted">Nessuna nota. Premi Registra e parla!</p>';
-}
-$('notes').onclick = async e => {
-  const li = e.target.closest('li'); if (!li) return;
-  openNote((await DB.all()).find(n => n.id === li.dataset.id));
-};
-$('search').oninput = render;
-$('filterCat').onchange = render;
+// ---------- Home: cartelle / ricerca / raccolta aperta ----------
+let openFolder = null;
+const fmtDate = t => new Date(t).toLocaleString('it-IT', { dateStyle: 'short', timeStyle: 'short' });
+const noteItem = (n, showCat) => `
+  <li data-id="${n.id}" style="--h:${hue(n.category)}">
+    <div class="meta">${showCat ? `<span class="tag">${emoji(n.category)} ${esc(n.category)}</span>` : ''}
+      <span>${fmtDate(n.created)}</span>${n.audio || n.hasAudio ? '<span>🔊</span>' : ''}</div>
+    <div class="t">${esc(n.title)}</div>
+    <div class="p">${n.pending ? '⏳ Trascrizione in corso…' : n.failed ? '⚠️ Trascrizione non riuscita' : esc(n.text)}</div>
+  </li>`;
 
-// ---------- Note detail ----------
+async function render() {
+  if (locked) return;
+  const all = (await DB.all()).sort((a, b) => b.created - a.created);
+  const q = $('search').value.trim().toLowerCase();
+  $('home').classList.toggle('hidden', !!openFolder);
+  $('folderView').classList.toggle('hidden', !openFolder);
+  if (openFolder) {
+    $('folderTitle').textContent = `${emoji(openFolder)} ${openFolder}`;
+    const list = all.filter(n => n.category === openFolder);
+    $('notes').innerHTML = list.length ? list.map(n => noteItem(n)).join('') : '<p class="muted empty">Nessuna nota in questa raccolta.</p>';
+    return;
+  }
+  $('results').classList.toggle('hidden', !q);
+  $('folders').classList.toggle('hidden', !!q);
+  if (q) {
+    const list = all.filter(n => (n.title + ' ' + n.text).toLowerCase().includes(q));
+    $('results').innerHTML = list.length ? list.map(n => noteItem(n, true)).join('') : '<p class="muted empty">Nessun risultato.</p>';
+    return;
+  }
+  const cats = [...settings.cats, ...new Set(all.map(n => n.category).filter(c => !settings.cats.includes(c)))];
+  $('folders').innerHTML = cats.map(c => {
+    const list = all.filter(n => n.category === c);
+    return `<button type="button" class="folder" data-cat="${esc(c)}" style="--h:${hue(c)}">
+      <span class="femoji">${emoji(c)}</span>
+      <span class="fname">${esc(c)}</span>
+      <span class="fcount">${list.length} ${list.length === 1 ? 'nota' : 'note'}</span>
+      <span class="flast">${list[0] ? esc(list[0].title) : '&nbsp;'}</span>
+    </button>`;
+  }).join('');
+}
+$('folders').onclick = e => {
+  const f = e.target.closest('.folder'); if (!f) return;
+  openFolder = f.dataset.cat; localStorage.selCat = openFolder; fillCats(); render(); scrollTo({ top: 0 });
+};
+$('btnBack').onclick = () => { openFolder = null; render(); };
+const openFromList = async e => {
+  const li = e.target.closest('li'); if (!li) return;
+  openNote(await DB.get(li.dataset.id));
+};
+$('notes').onclick = $('results').onclick = openFromList;
+$('search').oninput = render;
+
+// ---------- Dettaglio nota ----------
 let current = null, audioURL = null;
+function showAudio(blob) {
+  if (audioURL) URL.revokeObjectURL(audioURL);
+  audioURL = blob ? URL.createObjectURL(blob) : null;
+  if (blob) $('noteAudio').src = audioURL;
+  $('noteAudio').classList.toggle('hidden', !blob);
+}
 function openNote(n) {
+  if (!n) return;
   current = n;
   $('noteTitle').value = n.title;
   $('noteCat').value = n.category;
   $('noteText').value = n.text;
-  if (audioURL) URL.revokeObjectURL(audioURL);
-  if (n.audio) { audioURL = URL.createObjectURL(n.audio); $('noteAudio').src = audioURL; }
-  $('noteAudio').classList.toggle('hidden', !n.audio);
+  showAudio(n.audio);
+  $('btnLoadAudio').classList.toggle('hidden', !!n.audio || !n.hasAudio);
   $('btnRetry').classList.toggle('hidden', IS_IOS || !(n.audio && !n.pending && (n.failed || !n.text)));
   $('noteDlg').showModal();
 }
+$('btnLoadAudio').onclick = async () => {
+  const b = $('btnLoadAudio'); b.disabled = true; b.textContent = '⏳ Scarico…';
+  try {
+    current.audio = await Cloud.fetchAudio(current);
+    current.audioSynced = true;
+    await DB.put(current); showAudio(current.audio); b.classList.add('hidden');
+  } catch (e) { alert('Audio non disponibile: ' + e.message); }
+  b.disabled = false; b.textContent = '🔊 Scarica audio';
+};
 const exportText = () => `${$('noteTitle').value}\n[${$('noteCat').value}]\n\n${$('noteText').value}`;
 
 $('btnSave').onclick = async () => {
   Object.assign(current, { title: $('noteTitle').value, category: $('noteCat').value, text: $('noteText').value });
-  await DB.put(current); $('noteDlg').close(); render();
+  await saveNote(current); $('noteDlg').close();
 };
 $('btnRetry').onclick = async () => {
   Object.assign(current, { pending: true, failed: false, attempts: 0 });
-  await DB.put(current); $('noteDlg').close(); render(); transcribe(current);
+  await saveNote(current); $('noteDlg').close(); transcribe(current);
 };
 $('btnDelete').onclick = async () => {
   if (!confirm('Eliminare questa nota?')) return;
-  await DB.del(current.id); $('noteDlg').close(); render();
+  await DB.del(current.id); Cloud.markDeleted(current.id); $('noteDlg').close(); render();
 };
 $('btnCopy').onclick = async () => { await navigator.clipboard.writeText(exportText()); alert('Copiato!'); };
 $('btnShare').onclick = async () => {
@@ -282,12 +327,15 @@ $('btnDownload').onclick = () => {
   a.click();
 };
 
-// ---------- Settings ----------
+// ---------- Impostazioni ----------
 function openSettings() {
   $('model').value = settings.model;
   $('modelRow').classList.toggle('hidden', IS_IOS);
   $('privacyInfo').textContent = liveLocalInfo;
   $('catsInput').value = settings.cats.join('\n');
+  $('accountBox').classList.toggle('hidden', !Cloud.enabled);
+  $('btnLogout').classList.toggle('hidden', !Cloud.enabled);
+  $('accountEmail').textContent = Cloud.email;
   $('settingsDlg').showModal();
 }
 $('btnSettings').onclick = openSettings;
@@ -297,6 +345,43 @@ $('btnSaveSettings').onclick = () => {
   settings.cats = cats.length ? cats : DEFAULT_CATS;
   fillCats(); render();
 };
+$('btnLogout').onclick = async () => {
+  if (!confirm('Uscire? Le note restano salvate nel tuo account e le ritrovi quando accedi di nuovo.')) return;
+  $('settingsDlg').close();
+  await Cloud.logout();
+  showAuth();
+};
+
+// ---------- Sincronizzazione: indicatore ----------
+Cloud.onChange = () => { fillCats(); render(); };
+Cloud.onStatus = (s, msg) => {
+  const map = { sync: ['⏳', 'Sincronizzazione…'], ok: ['☁️', 'Note salvate nel tuo account (cifrate)'], error: ['⚠️', 'Sincronizzazione non riuscita: ' + (msg || '') + '. Riprovo da sola.'] };
+  $('syncIcon').textContent = map[s][0]; $('syncText').textContent = map[s][1];
+};
+
+// ---------- Account ----------
+function showAuth(msg) {
+  locked = true;
+  $('lock').classList.remove('hidden');
+  $('lockForm').classList.add('hidden');
+  $('authForm').classList.remove('hidden');
+  $('notes').innerHTML = $('results').innerHTML = $('folders').innerHTML = '';
+  if (msg) $('authMsg').textContent = msg;
+}
+async function doAuth(signup) {
+  const email = $('authEmail').value.trim(), pass = $('authPass').value;
+  if (!email || pass.length < 6) return $('authMsg').textContent = 'Inserisci email e password (almeno 6 caratteri)';
+  $('btnLogin').disabled = $('btnSignup').disabled = true;
+  $('authMsg').textContent = '⏳ Un momento…';
+  try {
+    const r = await Cloud.login(email, pass, signup);
+    if (r === 'confirm') $('authMsg').textContent = '📧 Ti ho mandato una email: aprila, conferma, poi torna qui e premi Accedi.';
+    else { $('authPass').value = ''; localStorage.lastSeen = 0; lock(); }
+  } catch (e) { $('authMsg').textContent = '⚠️ ' + e.message; }
+  $('btnLogin').disabled = $('btnSignup').disabled = false;
+}
+$('authForm').onsubmit = e => { e.preventDefault(); doAuth(false); };
+$('btnSignup').onclick = () => doAuth(true);
 
 // ---------- PIN lock ----------
 let locked = true, pinStep = null, firstPin = '';
@@ -310,16 +395,18 @@ function lock(step) {
   pinStep = step || (localStorage.pinHash ? 'unlock' : 'new');
   $('lockMsg').textContent = pinStep === 'unlock' ? 'Inserisci il PIN' : 'Crea un PIN (4-8 cifre)';
   $('btnFaceId').classList.toggle('hidden', !(pinStep === 'unlock' && localStorage.credId));
-  $('notes').innerHTML = '';
+  $('notes').innerHTML = $('results').innerHTML = $('folders').innerHTML = '';
   $('noteDlg').open && $('noteDlg').close();
   $('settingsDlg').open && $('settingsDlg').close();
   $('lock').classList.remove('hidden');
+  $('authForm').classList.add('hidden');
+  $('lockForm').classList.remove('hidden');
   $('pinInput').value = '';
   if (pinStep === 'unlock' && localStorage.credId) faceIdUnlock(true);
   else setTimeout(() => $('pinInput').focus(), 50);
 }
 function unlock() {
-  locked = false; $('lock').classList.add('hidden'); render();
+  locked = false; $('lock').classList.add('hidden'); render(); Cloud.sync && Cloud.sync();
   if (!localStorage.credId && !localStorage.faceIdAsked && window.PublicKeyCredential) {
     localStorage.faceIdAsked = 1;
     if (confirm('Vuoi sbloccare l\'app con Face ID?')) setupFaceId();
@@ -380,19 +467,25 @@ document.addEventListener('visibilitychange', () => {
 });
 window.addEventListener('pagehide', () => { if (!locked) localStorage.lastSeen = Date.now(); });
 
-// ---------- Privacy info ----------
+
+// ---------- Info privacy ----------
 let liveLocalInfo = '';
 checkLocalSR().then(ok => {
-  liveLocalInfo = '🔐 Note e audio restano solo su questo telefono. ' + (ok
+  liveLocalInfo = '🔐 ' + (Cloud.enabled ? 'Note e audio sono cifrati sul telefono prima di essere salvati nel tuo account: nessuno, nemmeno il server, può leggerli. ' : 'Note e audio restano solo su questo telefono. ') + (ok
     ? 'Trascrizione in diretta eseguita sul telefono.'
     : useApple() ? 'Trascrizione con la dettatura Apple: l\'audio può passare dai server Apple in forma anonima (mai Google).'
     : 'Trascrizione eseguita sul telefono con Whisper, dopo lo stop. Da internet si scarica solo il modello, una volta.');
 });
 
-if (navigator.storage?.persist) navigator.storage.persist();
-fillCats();
-if (localStorage.pinHash && Date.now() - (+localStorage.lastSeen || 0) < LOCK_AFTER) unlock(); else lock();
-// Riprende trascrizioni rimaste a metà
-DB.all().then(ns => ns.filter(n => n.pending && n.audio).forEach(transcribe));
-
+// ---------- Avvio ----------
+(async () => {
+  if (navigator.storage?.persist) navigator.storage.persist();
+  fillCats();
+  const st = await Cloud.init();
+  if (st === 'need-login') return showAuth();
+  if (localStorage.pinHash && Date.now() - (+localStorage.lastSeen || 0) < LOCK_AFTER) unlock(); else lock();
+  // Riprende trascrizioni rimaste a metà
+  (await DB.all()).filter(n => n.pending && n.audio).forEach(transcribe);
+})();
+document.addEventListener('visibilitychange', () => { if (!document.hidden && !locked) Cloud.sync(); });
 if ('serviceWorker' in navigator) navigator.serviceWorker.register('sw.js');
