@@ -24,10 +24,12 @@ const DB = (() => {
 
 const $ = id => document.getElementById(id);
 const DEFAULT_CATS = ['Idee', 'Lavoro', 'Diario', 'Spesa', 'Salute', 'Promemoria'];
+const IS_IOS = /iPad|iPhone|iPod/.test(navigator.userAgent) || (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
 const settings = {
   get cats() { try { return JSON.parse(localStorage.cats) } catch { return DEFAULT_CATS } },
   set cats(v) { localStorage.cats = JSON.stringify(v) },
-  get model() { return localStorage.model || 'Xenova/whisper-small' },
+  // iPhone: modello leggero di default (Safari ha poca memoria per le web app)
+  get model() { return localStorage.model || (IS_IOS ? 'Xenova/whisper-base' : 'Xenova/whisper-small') },
   set model(v) { localStorage.model = v },
 };
 
@@ -140,13 +142,20 @@ const queue = [];
 let busy = false;
 
 async function to16kMono(blob) {
-  const ctx = new (window.AudioContext || window.webkitAudioContext)();
-  const dec = await ctx.decodeAudioData(await blob.arrayBuffer());
-  ctx.close();
-  const off = new OfflineAudioContext(1, Math.ceil(dec.duration * 16000), 16000);
-  const src = off.createBufferSource();
-  src.buffer = dec; src.connect(off.destination); src.start();
-  return (await off.startRendering()).getChannelData(0);
+  const AC = window.AudioContext || window.webkitAudioContext;
+  const ctx = new AC();
+  const buf = await blob.arrayBuffer();
+  const dec = await new Promise((res, rej) => ctx.decodeAudioData(buf, res, rej));
+  ctx.close && ctx.close();
+  // Mono + ricampionamento a 16 kHz fatto a mano (Safari non accetta OfflineAudioContext a 16 kHz ovunque)
+  const n = dec.length, chs = dec.numberOfChannels, mono = new Float32Array(n);
+  for (let c = 0; c < chs; c++) { const d = dec.getChannelData(c); for (let i = 0; i < n; i++) mono[i] += d[i] / chs; }
+  const ratio = dec.sampleRate / 16000, out = new Float32Array(Math.floor(n / ratio));
+  for (let i = 0; i < out.length; i++) {
+    const x = i * ratio, j = x | 0, f = x - j;
+    out[i] = mono[j] * (1 - f) + (mono[j + 1] || 0) * f;
+  }
+  return out;
 }
 
 function transcribe(note) {
@@ -157,6 +166,15 @@ async function nextJob() {
   if (busy || !queue.length) return;
   busy = true;
   const note = queue[0];
+  note.attempts = (note.attempts || 0) + 1;
+  if (note.attempts > 2) {
+    // Già fallita due volte (es. il telefono ha chiuso la pagina per memoria): non riprovare in loop
+    Object.assign(note, { pending: false, failed: true });
+    await DB.put(note); queue.shift(); busy = false; render();
+    setStatus('⚠️ Trascrizione non riuscita. Apri la nota e premi "Riprova", oppure scegli qualità "Veloce" in ⚙️.');
+    return nextJob();
+  }
+  await DB.put(note);
   try {
     if (!worker) worker = new Worker('whisper-worker.js', { type: 'module' });
     setStatus('⏳ Preparo l\'audio…');
@@ -171,7 +189,7 @@ async function nextJob() {
       };
       worker.postMessage({ id: note.id, audio, model: settings.model }, [audio.buffer]);
     });
-    Object.assign(note, { text, pending: false, title: note.title === 'Nota vocale' && text ? makeTitle(text) : note.title });
+    Object.assign(note, { text, pending: false, failed: false, attempts: 0, title: note.title === 'Nota vocale' && text ? makeTitle(text) : note.title });
     await DB.put(note);
     render();
     if (!$('noteDlg').open && !locked) openNote(note);
@@ -199,7 +217,7 @@ async function render() {
         <span>${new Date(n.created).toLocaleString('it-IT', { dateStyle: 'short', timeStyle: 'short' })}</span>
         ${n.audio ? '<span>🔊</span>' : ''}</div>
       <div class="t">${esc(n.title)}</div>
-      <div class="p">${n.pending ? '⏳ Trascrizione in corso…' : esc(n.text)}</div>
+      <div class="p">${n.pending ? '⏳ Trascrizione in corso…' : n.failed ? '⚠️ Trascrizione non riuscita: apri per riprovare' : esc(n.text)}</div>
     </li>`).join('') : '<p class="muted">Nessuna nota. Premi Registra e parla!</p>';
 }
 $('notes').onclick = async e => {
@@ -219,6 +237,7 @@ function openNote(n) {
   if (audioURL) URL.revokeObjectURL(audioURL);
   if (n.audio) { audioURL = URL.createObjectURL(n.audio); $('noteAudio').src = audioURL; }
   $('noteAudio').classList.toggle('hidden', !n.audio);
+  $('btnRetry').classList.toggle('hidden', !(n.audio && !n.pending && (n.failed || !n.text)));
   $('noteDlg').showModal();
 }
 const exportText = () => `${$('noteTitle').value}\n[${$('noteCat').value}]\n\n${$('noteText').value}`;
@@ -226,6 +245,10 @@ const exportText = () => `${$('noteTitle').value}\n[${$('noteCat').value}]\n\n${
 $('btnSave').onclick = async () => {
   Object.assign(current, { title: $('noteTitle').value, category: $('noteCat').value, text: $('noteText').value });
   await DB.put(current); $('noteDlg').close(); render();
+};
+$('btnRetry').onclick = async () => {
+  Object.assign(current, { pending: true, failed: false, attempts: 0 });
+  await DB.put(current); $('noteDlg').close(); render(); transcribe(current);
 };
 $('btnDelete').onclick = async () => {
   if (!confirm('Eliminare questa nota?')) return;

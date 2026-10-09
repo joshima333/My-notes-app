@@ -2,6 +2,7 @@
 // Da internet si scaricano solo libreria e modello (una volta, poi in cache).
 import { pipeline, env } from 'https://cdn.jsdelivr.net/npm/@huggingface/transformers@3.8.1';
 env.allowLocalModels = false;
+env.backends.onnx.wasm.numThreads = 1; // meno memoria, più stabile su iPhone
 
 let asr = null, loaded = '';
 self.onmessage = async ({ data: { id, audio, model } }) => {
