@@ -226,11 +226,14 @@ $('btnRec').onclick = () => recording ? stop() : start();
 let openFolder = null;
 const fmtDate = t => new Date(t).toLocaleString('it-IT', { dateStyle: 'short', timeStyle: 'short' });
 const noteItem = (n, showCat) => `
-  <li data-id="${n.id}" style="--h:${hue(n.category)}">
+  <li data-id="${n.id}" class="swipe" style="--h:${hue(n.category)}">
+    <button type="button" class="sdel" tabindex="-1">Elimina</button>
+    <div class="sc">
     <div class="meta">${showCat ? `<span class="tag">${emoji(n.category)} ${esc(n.category)}</span>` : ''}
       <span>${fmtDate(n.created)}</span>${n.audio || n.hasAudio ? '<span>🔊</span>' : ''}</div>
     <div class="t">${esc(n.title)}</div>
     <div class="p">${n.pending ? '⏳ Trascrizione in corso…' : n.failed ? '⚠️ Trascrizione non riuscita' : notePreview(n)}</div>
+    </div>
   </li>`;
 function notePreview(n) {
   if (n.items?.length) {
@@ -279,9 +282,70 @@ $('folders').onclick = e => {
 $('btnBack').onclick = () => { openFolder = null; render(); };
 const openFromList = async e => {
   const li = e.target.closest('li'); if (!li) return;
+  if (e.target.closest('.sdel')) return deleteWithUndo(li);
+  if (Date.now() - justSwiped < 400) return;
+  if (openSwipe) return closeSwipe();            // tocco su una riga aperta = chiudi
   openNote(await DB.get(li.dataset.id));
 };
 $('notes').onclick = $('results').onclick = openFromList;
+
+// ---------- Scorri a sinistra per eliminare (stile iPhone) ----------
+const BTN_W = 92, FULL = 0.55;
+let sw = null, openSwipe = null, justSwiped = 0;
+const setX = (li, x, anim) => {
+  const sc = li.querySelector('.sc'), del = li.querySelector('.sdel');
+  sc.style.transition = del.style.transition = anim ? 'transform .25s ease, width .25s ease' : 'none';
+  sc.style.transform = `translateX(${x}px)`; del.style.width = `${Math.max(0, -x)}px`;
+  li.classList.toggle('full', -x > li.offsetWidth * FULL);
+};
+function closeSwipe() { if (openSwipe) setX(openSwipe, 0, true); openSwipe = null; }
+function onTouchStart(e) {
+  const li = e.target.closest('li.swipe'); if (!li) return;
+  if (openSwipe && openSwipe !== li) closeSwipe();
+  const t = e.touches[0];
+  sw = { li, x0: t.clientX, y0: t.clientY, base: openSwipe === li ? -BTN_W : 0, dir: null, dx: 0 };
+}
+function onTouchMove(e) {
+  if (!sw) return;
+  const t = e.touches[0], dx = t.clientX - sw.x0, dy = t.clientY - sw.y0;
+  if (!sw.dir && Math.abs(dx) + Math.abs(dy) > 8) sw.dir = Math.abs(dx) > Math.abs(dy) ? 'h' : 'v';
+  if (sw.dir !== 'h') return;
+  e.preventDefault();
+  sw.dx = Math.min(0, sw.base + dx);
+  setX(sw.li, sw.dx);
+}
+function onTouchEnd() {
+  if (!sw || sw.dir !== 'h') { sw = null; return; }
+  const { li, dx } = sw; sw = null;
+  if (-dx > li.offsetWidth * FULL) return deleteWithUndo(li);
+  if (-dx > BTN_W / 2) { setX(li, -BTN_W, true); openSwipe = li; }
+  else { setX(li, 0, true); openSwipe = null; }
+  justSwiped = Date.now(); // evita che il rilascio apra la nota
+}
+for (const id of ['notes', 'results']) {
+  $(id).addEventListener('touchstart', onTouchStart, { passive: true });
+  $(id).addEventListener('touchmove', onTouchMove, { passive: false });
+  $(id).addEventListener('touchend', onTouchEnd);
+  $(id).addEventListener('touchcancel', onTouchEnd);
+}
+
+// Elimina con possibilità di annullare per qualche secondo
+let undo = null;
+async function deleteWithUndo(li) {
+  const id = li.dataset.id;
+  openSwipe = null;
+  li.style.transition = 'height .25s ease, opacity .25s ease, margin .25s ease';
+  li.style.height = li.offsetHeight + 'px';
+  requestAnimationFrame(() => { li.style.height = '0px'; li.style.opacity = '0'; li.style.marginTop = '-12px'; });
+  if (undo) await undo.commit();
+  const note = await DB.get(id);
+  await DB.del(id);
+  const t = setTimeout(() => commit(), 4000);
+  const commit = async () => { clearTimeout(t); $('toast').classList.add('hidden'); undo = null; Cloud.markDeleted(id); render(); };
+  undo = { commit, restore: async () => { clearTimeout(t); $('toast').classList.add('hidden'); undo = null; await DB.put(note); render(); } };
+  $('toast').classList.remove('hidden');
+}
+$('btnUndo').onclick = () => undo && undo.restore();
 $('search').oninput = render;
 
 // ---------- Dettaglio nota ----------
