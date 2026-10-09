@@ -61,6 +61,9 @@ async function checkLocalSR() {
 }
 const setStatus = t => { $('status').textContent = t; $('status').classList.toggle('hidden', !t); };
 
+let appendMode = false;
+const liveEl = () => appendMode ? $('appendLive') : $('live');
+const recBtn = () => appendMode ? $('btnAppendRec') : $('btnRec');
 let rec = null, media = null, chunks = [], finalText = '', lastInterim = '', recording = false, t0 = 0, tick;
 // Su iPhone Whisper è troppo pesante: si usa la dettatura Apple (in diretta)
 const useApple = () => IS_IOS && !!SR;
@@ -68,7 +71,7 @@ const flushInterim = () => { if (lastInterim.trim()) finalText += lastInterim.tr
 
 async function start() {
   finalText = ''; lastInterim = ''; chunks = [];
-  $('live').innerHTML = '';
+  liveEl().innerHTML = '';
   liveLocal = await checkLocalSR();
   const live = liveLocal || useApple();
   try {
@@ -78,7 +81,7 @@ async function start() {
     media.start(1000);
   } catch (e) {
     media = null;
-    if (!live) return alert('Impossibile usare il microfono: controlla i permessi.');
+    if (!live) { appendMode = false; return alert('Impossibile usare il microfono: controlla i permessi.'); }
   }
 
   if (live) {
@@ -95,7 +98,7 @@ async function start() {
         else interim += r[0].transcript;
       }
       lastInterim = interim;
-      $('live').innerHTML = esc(finalText) + `<span class="interim">${esc(interim)}</span>`;
+      liveEl().innerHTML = esc(finalText) + `<span class="interim">${esc(interim)}</span>`;
     };
     // iPhone a volte non "chiude" l'ultima frase: la salviamo comunque
     rec.onend = () => { flushInterim(); if (recording) try { rec.start() } catch {} };
@@ -106,7 +109,7 @@ async function start() {
     };
     rec.start();
   } else {
-    $('live').innerHTML = '<span class="interim">Sto registrando… il testo apparirà dopo lo stop.</span>';
+    liveEl().innerHTML = '<span class="interim">Sto registrando… il testo apparirà dopo lo stop.</span>';
   }
   recording = true;
   t0 = Date.now();
@@ -114,15 +117,16 @@ async function start() {
     const s = Math.floor((Date.now() - t0) / 1000);
     $('timer').textContent = `${String(s / 60 | 0).padStart(2, '0')}:${String(s % 60).padStart(2, '0')}`;
   }, 500);
-  $('btnRec').textContent = '■ Stop';
-  $('btnRec').classList.add('on');
+  recBtn().textContent = '■ Stop';
+  recBtn().classList.add('on');
+  liveEl().classList.remove('hidden');
 }
 
 async function stop() {
   recording = false;
   clearInterval(tick);
-  $('btnRec').textContent = '● Registra';
-  $('btnRec').classList.remove('on');
+  recBtn().textContent = appendMode ? '🎙️ Aggiungi a voce' : '● Registra';
+  recBtn().classList.remove('on');
   if (rec) { const r = rec; rec = null; r.onend = flushInterim; r.stop(); }
   let audio = null;
   if (media) {
@@ -134,7 +138,8 @@ async function stop() {
   await new Promise(r => setTimeout(r, 800));
   flushInterim();
   const text = finalText.trim();
-  $('live').innerHTML = '';
+  liveEl().innerHTML = '';
+  if (appendMode) { appendMode = false; return finishAppend(text, audio); }
   if (!text && !audio) return;
   const pending = !text && !!audio;
   const items = Smart.isShopping(selCat()) && text ? Smart.parseList(text).map(t => ({ t, done: false })) : null;
@@ -179,6 +184,21 @@ function transcribe(note) {
   if (!queue.some(n => n.id === note.id)) queue.push(note);
   nextJob();
 }
+async function runWhisper(blob, onStatus) {
+  if (!worker) worker = new Worker('whisper-worker.js', { type: 'module' });
+  onStatus('⏳ Preparo l\'audio…');
+  const audio = await to16kMono(blob);
+  return new Promise((res, rej) => {
+    worker.onerror = () => { worker = null; rej(new Error('modello non caricato, controlla la connessione')); };
+    worker.onmessage = ({ data: m }) => {
+      if (m.type === 'progress') onStatus(`⬇️ Scarico il modello (solo la prima volta)… ${Math.round(m.progress || 0)}%`);
+      else if (m.type === 'working') onStatus('✍️ Trascrivo sul telefono…');
+      else if (m.type === 'done') res(m.text);
+      else if (m.type === 'error') rej(new Error(m.error));
+    };
+    worker.postMessage({ id: 'x', audio, model: settings.model }, [audio.buffer]);
+  });
+}
 async function nextJob() {
   if (busy || !queue.length) return;
   busy = true;
@@ -193,19 +213,7 @@ async function nextJob() {
   }
   await DB.put(note);
   try {
-    if (!worker) worker = new Worker('whisper-worker.js', { type: 'module' });
-    setStatus('⏳ Preparo l\'audio…');
-    const audio = await to16kMono(note.audio);
-    const text = await new Promise((res, rej) => {
-      worker.onerror = () => { worker = null; rej(new Error('modello non caricato, controlla la connessione')); };
-      worker.onmessage = ({ data: m }) => {
-        if (m.type === 'progress') setStatus(`⬇️ Scarico il modello (solo la prima volta)… ${Math.round(m.progress || 0)}%`);
-        else if (m.type === 'working') setStatus('✍️ Trascrivo sul telefono…');
-        else if (m.type === 'done') res(m.text);
-        else if (m.type === 'error') rej(new Error(m.error));
-      };
-      worker.postMessage({ id: note.id, audio, model: settings.model }, [audio.buffer]);
-    });
+    const text = await runWhisper(note.audio, setStatus);
     if (Smart.isShopping(note.category)) note.items = Smart.parseList(text).map(t => ({ t, done: false }));
     Object.assign(note, { text, pending: false, failed: false, attempts: 0, title: note.title === 'Nota vocale' && text ? makeTitle(text) : note.title });
     await saveNote(note);
@@ -368,6 +376,8 @@ function openNote(n) {
   if (Smart.isShopping(n.category) && !n.items && n.text) n.items = Smart.parseList(n.text).map(t => ({ t, done: false }));
   renderChecklist();
   renderEvent();
+  $('addItem').placeholder = isList() ? 'Aggiungi alla lista…' : 'Aggiungi testo alla nota…';
+  $('appendLive').classList.add('hidden');
   $('noteDlg').showModal();
 }
 // Lista spuntabile
@@ -375,13 +385,55 @@ function renderChecklist() {
   const items = current.items || [];
   $('checklist').classList.toggle('hidden', !items.length);
   $('checklist').innerHTML = items.map((it, i) =>
-    `<li class="${it.done ? 'done' : ''}" data-i="${i}"><span class="box">${it.done ? '✓' : ''}</span><span>${esc(it.t)}</span></li>`).join('');
+    `<li class="${it.done ? 'done' : ''}" data-i="${i}"><span class="box">${it.done ? '✓' : ''}</span><span class="it">${esc(it.t)}</span><button type="button" class="rm" aria-label="Togli">✕</button></li>`).join('');
 }
 $('checklist').onclick = async e => {
   const li = e.target.closest('li'); if (!li) return;
-  const it = current.items[+li.dataset.i]; it.done = !it.done;
+  const i = +li.dataset.i;
+  if (e.target.closest('.rm')) current.items.splice(i, 1);
+  else current.items[i].done = !current.items[i].done;
   renderChecklist(); await saveNote(current);
 };
+// Aggiungere a una nota esistente: scrivendo o a voce
+const isList = () => Smart.isShopping($('noteCat').value) || !!current.items?.length;
+function syncFromForm() {
+  Object.assign(current, { title: $('noteTitle').value, category: $('noteCat').value, text: $('noteText').value });
+}
+async function appendText(t) {
+  t = t.trim(); if (!t) return;
+  t = t[0].toUpperCase() + t.slice(1);
+  const ta = $('noteText');
+  ta.value = ta.value.trim() ? ta.value.trim().replace(/[.!?]?$/, m => m || '.') + ' ' + t : t;
+  if (isList()) {
+    const have = new Set((current.items || []).map(i => i.t.toLowerCase()));
+    current.items = [...(current.items || []), ...Smart.parseList(t).filter(x => !have.has(x.toLowerCase())).map(x => ({ t: x, done: false }))];
+  }
+  syncFromForm(); renderChecklist(); renderEvent();
+  await saveNote(current);
+}
+$('addItemForm').onsubmit = async e => {
+  e.preventDefault();
+  const v = $('addItem').value.trim(); if (!v) return;
+  $('addItem').value = '';
+  if (isList()) {
+    current.items = [...(current.items || []), ...v.split(/[,;]/).map(x => x.trim()).filter(Boolean).map(x => ({ t: x[0].toUpperCase() + x.slice(1), done: false }))];
+    syncFromForm(); renderChecklist(); await saveNote(current);
+  } else await appendText(v);
+};
+$('btnAppendRec').onclick = () => {
+  if (recording) return appendMode ? stop() : null;
+  appendMode = true; start();
+};
+async function finishAppend(text, audio) {
+  const box = $('appendLive');
+  if (!text && audio && !IS_IOS) {
+    try { text = (await runWhisper(audio, m => box.textContent = m)).trim(); }
+    catch (e) { box.textContent = '⚠️ ' + e.message; return; }
+  }
+  box.textContent = ''; box.classList.add('hidden');
+  if (text) await appendText(text);
+}
+$('noteDlg').addEventListener('close', () => { if (recording && appendMode) stop(); });
 // Evento da calendario
 let currentEvent = null;
 function renderEvent() {

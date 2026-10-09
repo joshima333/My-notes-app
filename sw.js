@@ -1,4 +1,4 @@
-const C='note-vocali-v10',F=['./','index.html','style.css','app.js','manifest.json','icon.svg','whisper-worker.js','db.js','smart.js','cloud.js','config.js','vendor/supabase.js'];
+const C='note-vocali-v11',F=['./','index.html','style.css','app.js','manifest.json','icon.svg','whisper-worker.js','db.js','smart.js','cloud.js','config.js','vendor/supabase.js'];
 self.addEventListener('install',e=>{e.waitUntil(caches.open(C).then(c=>c.addAll(F)));self.skipWaiting()});
 self.addEventListener('activate',e=>{e.waitUntil(caches.keys().then(k=>Promise.all(k.filter(x=>x!==C).map(x=>caches.delete(x)))));self.clients.claim()});
 self.addEventListener('fetch',e=>{if(e.request.method!=='GET'||!e.request.url.startsWith(self.location.origin))return;

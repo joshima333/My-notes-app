@@ -65,6 +65,12 @@
       </div>
     </div>
     <ul id="checklist" class="checklist hidden"></ul>
+    <div class="addrow">
+      <input id="addItem" form="addItemForm" placeholder="Aggiungi…" enterkeyhint="done">
+      <button type="submit" form="addItemForm" class="addbtn" aria-label="Aggiungi">＋</button>
+    </div>
+    <button type="button" id="btnAppendRec" class="appendrec">🎙️ Aggiungi a voce</button>
+    <div id="appendLive" class="live appendlive hidden"></div>
     <textarea id="noteText" rows="8"></textarea>
     <div class="row">
       <button type="button" id="btnRetry" class="hidden">🔁 Riprova trascrizione</button>
@@ -78,6 +84,8 @@
     </div>
   </form>
 </dialog>
+
+<form id="addItemForm" hidden></form>
 
 <dialog id="settingsDlg">
   <form method="dialog" class="dlg">

@@ -158,3 +158,15 @@ html{background:var(--bg1)}
   display:flex;align-items:center;gap:14px;padding:10px 12px 10px 18px;border-radius:999px;color:#fff;background:rgba(30,28,40,.85);
   -webkit-backdrop-filter:blur(20px);backdrop-filter:blur(20px);box-shadow:0 8px 30px rgba(0,0,0,.3);font-size:.95rem;white-space:nowrap}
 .toast button{background:none!important;border:none!important;box-shadow:none!important;color:#8fa2ff!important;font-weight:700;padding:6px 8px!important}
+.checklist .it{flex:1}
+.checklist li.done .it{text-decoration:line-through;color:var(--muted)}
+.checklist li.done span:last-child{text-decoration:none}
+.checklist .rm{background:none!important;border:none!important;box-shadow:none!important;-webkit-backdrop-filter:none!important;backdrop-filter:none!important;color:var(--muted);padding:2px 6px!important;font-size:.9rem}
+.addrow{display:flex;gap:8px}
+.addrow input{flex:1;min-width:0}
+.addbtn{width:46px;padding:0!important;font-size:1.3rem;font-weight:700}
+.appendrec{width:100%}
+.appendrec.on{background:var(--rec)!important;color:#fff!important;animation:pulse 1.4s ease-in-out infinite}
+.appendlive{text-align:left;font-size:.95rem;background:var(--glass);border-radius:14px;padding:10px 12px;min-height:0}
+.appendlive:empty::before{content:"Parla, il testo si aggiunge alla nota"}
+.dlg{grid-template-columns:minmax(0,1fr)}.dlg > *{min-width:0}
