@@ -97,7 +97,7 @@ const Cloud = (() => {
   };
 
   const pick = n => ({ created: n.created, category: n.category, title: n.title, text: n.text,
-    duration: n.duration, pending: !!n.pending, failed: !!n.failed, mime: n.audio?.type || n.mime || '', items: n.items || null });
+    duration: n.duration, pending: !!n.pending, failed: !!n.failed, mime: n.audio?.type || n.mime || '', items: n.items || null, pinned: !!n.pinned });
 
   async function sync() {
     if (!key || !user || !navigator.onLine) return;
@@ -145,10 +145,10 @@ const Cloud = (() => {
       if (st?.data && st.updated > localUpd) {
         const prof = await decJSON(st.data);
         if (Array.isArray(prof)) localStorage.cats = JSON.stringify(prof);
-        else { localStorage.cats = JSON.stringify(prof.cats || []); if (prof.name) localStorage.name = prof.name; }
+        else { localStorage.cats = JSON.stringify(prof.cats || []); if (prof.name) localStorage.name = prof.name; if (prof.meta) localStorage.catMeta = JSON.stringify(prof.meta); }
         localStorage.catsUpdated = st.updated; changed = true;
       } else if (localUpd > (st?.updated || 0)) {
-        await sb.from('user_settings').update({ data: await encJSON({ cats: JSON.parse(localStorage.cats || '[]'), name: localStorage.name || '' }), updated: localUpd }).eq('user_id', user.id);
+        await sb.from('user_settings').update({ data: await encJSON({ cats: JSON.parse(localStorage.cats || '[]'), name: localStorage.name || '', meta: JSON.parse(localStorage.catMeta || '{}') }), updated: localUpd }).eq('user_id', user.id);
       }
       api.onStatus('ok');
       if (changed) api.onChange();

@@ -18,9 +18,11 @@ async function saveNote(n) {
 
 // ---------- Raccolte ----------
 const EMOJI = { idee: '💡', brainstorming: '🧠', lavoro: '💼', diario: '📔', spesa: '🛒', salute: '🩺', promemoria: '⏰', studio: '📚', casa: '🏠', viaggi: '✈️', ricette: '🍳', sport: '🏃' };
-const emoji = c => EMOJI[c.toLowerCase()] || '📁';
+const catMeta = () => { try { return JSON.parse(localStorage.catMeta) || {}; } catch { return {}; } };
+const setCatMeta = m => { localStorage.catMeta = JSON.stringify(m); localStorage.catsUpdated = Date.now(); Cloud.schedule(); };
+const emoji = c => catMeta()[c]?.emoji || EMOJI[c.toLowerCase()] || '📁';
 const HUES = [250, 320, 160, 30, 200, 280, 0, 120, 50, 340];
-const hue = c => HUES[Math.abs([...c].reduce((h, ch) => h * 31 + ch.charCodeAt(0) | 0, 7)) % HUES.length];
+const hue = c => catMeta()[c]?.hue ?? HUES[Math.abs([...c].reduce((h, ch) => h * 31 + ch.charCodeAt(0) | 0, 7)) % HUES.length];
 const selCat = () => settings.cats.includes(localStorage.selCat) ? localStorage.selCat : settings.cats[0];
 
 function fillCats() {
@@ -152,7 +154,7 @@ async function stop() {
   await saveNote(note);
   if (pending) transcribe(note); else openNote(note);
 }
-const makeTitle = t => { const w = t.split(/\s+/); return w.slice(0, 6).join(' ') + (w.length > 6 ? '…' : ''); };
+const makeTitle = t => { const w = t.trim().split(/\s+/); return w.slice(0, 6).join(' ').replace(/[.,;:!?]+$/, '') + (w.length > 6 ? '…' : ''); };
 
 // ---------- Whisper on-device ----------
 let worker = null;
@@ -235,10 +237,11 @@ let openFolder = null;
 const fmtDate = t => new Date(t).toLocaleString('it-IT', { dateStyle: 'short', timeStyle: 'short' });
 const noteItem = (n, showCat) => `
   <li data-id="${n.id}" class="swipe" style="--h:${hue(n.category)}">
+    <button type="button" class="smove" tabindex="-1">Sposta</button>
     <button type="button" class="sdel" tabindex="-1">Elimina</button>
     <div class="sc">
     <div class="meta">${showCat ? `<span class="tag">${emoji(n.category)} ${esc(n.category)}</span>` : ''}
-      <span>${fmtDate(n.created)}</span>${n.audio || n.hasAudio ? '<span>🔊</span>' : ''}</div>
+      ${n.pinned ? '<span>📌</span>' : ''}<span>${fmtDate(n.created)}</span>${n.audio || n.hasAudio ? '<span>🔊</span>' : ''}</div>
     <div class="t">${esc(n.title)}</div>
     <div class="p">${n.pending ? '⏳ Trascrizione in corso…' : n.failed ? '⚠️ Trascrizione non riuscita' : notePreview(n)}</div>
     </div>
@@ -254,7 +257,7 @@ function notePreview(n) {
 
 async function render() {
   if (locked) return;
-  const all = (await DB.all()).sort((a, b) => b.created - a.created);
+  const all = (await DB.all()).sort((a, b) => (!!b.pinned - !!a.pinned) || b.created - a.created);
   const q = $('search').value.trim().toLowerCase();
   $('home').classList.toggle('hidden', !!openFolder);
   $('folderView').classList.toggle('hidden', !openFolder);
@@ -291,27 +294,29 @@ $('btnBack').onclick = () => { openFolder = null; render(); };
 const openFromList = async e => {
   const li = e.target.closest('li'); if (!li) return;
   if (e.target.closest('.sdel')) return deleteWithUndo(li);
+  if (e.target.closest('.smove')) { closeSwipe(); return openMove(li.dataset.id); }
   if (Date.now() - justSwiped < 400) return;
   if (openSwipe) return closeSwipe();            // tocco su una riga aperta = chiudi
   openNote(await DB.get(li.dataset.id));
 };
 $('notes').onclick = $('results').onclick = openFromList;
 
-// ---------- Scorri a sinistra per eliminare (stile iPhone) ----------
+// ---------- Scorri: a sinistra Elimina, a destra Sposta (stile iPhone) ----------
 const BTN_W = 92, FULL = 0.55;
-let sw = null, openSwipe = null, justSwiped = 0;
+let sw = null, openSwipe = null, openX = 0, justSwiped = 0;
 const setX = (li, x, anim) => {
-  const sc = li.querySelector('.sc'), del = li.querySelector('.sdel');
-  sc.style.transition = del.style.transition = anim ? 'transform .25s ease, width .25s ease' : 'none';
-  sc.style.transform = `translateX(${x}px)`; del.style.width = `${Math.max(0, -x)}px`;
-  li.classList.toggle('full', -x > li.offsetWidth * FULL);
+  const sc = li.querySelector('.sc'), del = li.querySelector('.sdel'), mv = li.querySelector('.smove');
+  sc.style.transition = del.style.transition = mv.style.transition = anim ? 'transform .25s ease, width .25s ease' : 'none';
+  sc.style.transform = `translateX(${x}px)`;
+  del.style.width = `${Math.max(0, -x)}px`; mv.style.width = `${Math.max(0, x)}px`;
+  li.classList.toggle('full', Math.abs(x) > li.offsetWidth * FULL);
 };
-function closeSwipe() { if (openSwipe) setX(openSwipe, 0, true); openSwipe = null; }
+function closeSwipe() { if (openSwipe) setX(openSwipe, 0, true); openSwipe = null; openX = 0; }
 function onTouchStart(e) {
   const li = e.target.closest('li.swipe'); if (!li) return;
   if (openSwipe && openSwipe !== li) closeSwipe();
   const t = e.touches[0];
-  sw = { li, x0: t.clientX, y0: t.clientY, base: openSwipe === li ? -BTN_W : 0, dir: null, dx: 0 };
+  sw = { li, x0: t.clientX, y0: t.clientY, base: openSwipe === li ? openX : 0, dir: null, dx: 0 };
 }
 function onTouchMove(e) {
   if (!sw) return;
@@ -319,16 +324,18 @@ function onTouchMove(e) {
   if (!sw.dir && Math.abs(dx) + Math.abs(dy) > 8) sw.dir = Math.abs(dx) > Math.abs(dy) ? 'h' : 'v';
   if (sw.dir !== 'h') return;
   e.preventDefault();
-  sw.dx = Math.min(0, sw.base + dx);
+  sw.dx = sw.base + dx;
   setX(sw.li, sw.dx);
 }
 function onTouchEnd() {
   if (!sw || sw.dir !== 'h') { sw = null; return; }
   const { li, dx } = sw; sw = null;
-  if (-dx > li.offsetWidth * FULL) return deleteWithUndo(li);
-  if (-dx > BTN_W / 2) { setX(li, -BTN_W, true); openSwipe = li; }
-  else { setX(li, 0, true); openSwipe = null; }
   justSwiped = Date.now(); // evita che il rilascio apra la nota
+  const full = Math.abs(dx) > li.offsetWidth * FULL;
+  if (full && dx < 0) return deleteWithUndo(li);
+  if (full && dx > 0) { closeSwipe(); setX(li, 0, true); return openMove(li.dataset.id); }
+  if (Math.abs(dx) > BTN_W / 2) { openX = dx < 0 ? -BTN_W : BTN_W; setX(li, openX, true); openSwipe = li; }
+  else { setX(li, 0, true); openSwipe = null; openX = 0; }
 }
 for (const id of ['notes', 'results']) {
   $(id).addEventListener('touchstart', onTouchStart, { passive: true });
@@ -356,6 +363,77 @@ async function deleteWithUndo(li) {
 $('btnUndo').onclick = () => undo && undo.restore();
 $('search').oninput = render;
 
+// ---------- Sposta nota ----------
+let moveId = null;
+function openMove(id) {
+  moveId = id;
+  $('moveList').innerHTML = settings.cats.map(c =>
+    `<button type="button" class="chip" style="--h:${hue(c)}" data-cat="${esc(c)}">${emoji(c)} ${esc(c)}</button>`).join('');
+  $('moveDlg').showModal();
+}
+$('moveList').onclick = async e => {
+  const b = e.target.closest('[data-cat]'); if (!b) return;
+  const n = await DB.get(moveId);
+  if (n) { n.category = b.dataset.cat; if (Smart.isShopping(n.category) && !n.items && n.text) n.items = Smart.parseList(n.text).map(t => ({ t, done: false })); await saveNote(n); }
+  $('moveDlg').close();
+};
+
+// ---------- Nota scritta ----------
+$('btnWrite').onclick = () => {
+  openNote({ id: crypto.randomUUID(), created: Date.now(), category: selCat(), title: '', text: '', audio: null, draft: true });
+  setTimeout(() => $('noteText').focus(), 150);
+};
+
+// ---------- Modifica raccolta (nome, emoji, colore) ----------
+const EMOJIS = ['💡','🧠','💼','📔','🛒','🩺','⏰','📚','🏠','✈️','🍳','🏃','🐶','🐱','💊','🌸','🎨','🎵','🎬','💰','🎁','❤️','⭐','🌿','🧘','🍎','☕','📷','🛠️','👶','🎓','📝'];
+let editCat = null, editHue = null;
+function openCatEditor(c) {
+  editCat = c; editHue = hue(c);
+  $('catName').value = c; $('catEmoji').value = emoji(c);
+  $('emojiGrid').innerHTML = EMOJIS.map(e => `<button type="button">${e}</button>`).join('');
+  renderColors();
+  $('catDlg').showModal();
+}
+function renderColors() {
+  $('colorGrid').innerHTML = [250, 220, 200, 180, 160, 120, 50, 30, 0, 340, 320, 280].map(h =>
+    `<button type="button" data-h="${h}" class="${h === editHue ? 'on' : ''}" style="--h:${h}" aria-label="Colore"></button>`).join('');
+}
+$('emojiGrid').onclick = e => { const b = e.target.closest('button'); if (b) $('catEmoji').value = b.textContent; };
+$('colorGrid').onclick = e => { const b = e.target.closest('[data-h]'); if (b) { editHue = +b.dataset.h; renderColors(); } };
+$('btnEditCat').onclick = () => openCatEditor(openFolder);
+$('btnSaveCat').onclick = async () => {
+  const name = $('catName').value.trim() || editCat;
+  if (name !== editCat && settings.cats.includes(name)) return alert('Esiste già una raccolta con questo nome');
+  const meta = catMeta(); delete meta[editCat];
+  meta[name] = { emoji: $('catEmoji').value.trim() || '📁', hue: editHue };
+  setCatMeta(meta);
+  if (name !== editCat) {
+    settings.cats = settings.cats.map(c => c === editCat ? name : c);
+    for (const n of await DB.all()) if (n.category === editCat) { n.category = name; await saveNote(n); }
+    if (localStorage.selCat === editCat) localStorage.selCat = name;
+    if (openFolder === editCat) openFolder = name;
+  }
+  $('catDlg').close(); fillCats(); render();
+};
+$('btnDelCat').onclick = async () => {
+  const count = (await DB.all()).filter(n => n.category === editCat).length;
+  if (count) return alert(`La raccolta contiene ${count} ${count === 1 ? 'nota' : 'note'}: spostale o eliminale prima.`);
+  if (!confirm(`Eliminare la raccolta "${editCat}"?`)) return;
+  settings.cats = settings.cats.filter(c => c !== editCat);
+  $('catDlg').close(); openFolder = null; fillCats(); render();
+};
+
+// ---------- Riordina le raccolte tenendo premuto ----------
+if (window.Sortable) Sortable.create($('folders'), {
+  animation: 180, delay: 350, delayOnTouchOnly: true, touchStartThreshold: 6,
+  ghostClass: 'dragghost', chosenClass: 'dragchosen',
+  onEnd: () => {
+    const order = [...$('folders').querySelectorAll('.folder')].map(f => f.dataset.cat);
+    settings.cats = [...order.filter(c => settings.cats.includes(c))];
+    fillCats();
+  },
+});
+
 // ---------- Dettaglio nota ----------
 let current = null, audioURL = null;
 function showAudio(blob) {
@@ -376,6 +454,8 @@ function openNote(n) {
   if (Smart.isShopping(n.category) && !n.items && n.text) n.items = Smart.parseList(n.text).map(t => ({ t, done: false }));
   renderChecklist();
   renderEvent();
+  $('btnPinNote').textContent = n.pinned ? '📍 Sgancia' : '📌 Fissa';
+  caret = null;
   $('addItem').placeholder = isList() ? 'Aggiungi alla lista…' : 'Aggiungi testo alla nota…';
   $('appendLive').classList.add('hidden');
   $('noteDlg').showModal();
@@ -398,12 +478,17 @@ $('checklist').onclick = async e => {
 const isList = () => Smart.isShopping($('noteCat').value) || !!current.items?.length;
 function syncFromForm() {
   Object.assign(current, { title: $('noteTitle').value, category: $('noteCat').value, text: $('noteText').value });
+  if (current.text.trim()) { delete current.draft; if (!current.title.trim()) current.title = makeTitle(current.text); }
 }
 async function appendText(t) {
   t = t.trim(); if (!t) return;
   t = t[0].toUpperCase() + t.slice(1);
   const ta = $('noteText');
-  ta.value = ta.value.trim() ? ta.value.trim().replace(/[.!?]?$/, m => m || '.') + ' ' + t : t;
+  if (!isList() && caret != null && caret < ta.value.length) {
+    const before = ta.value.slice(0, caret), after = ta.value.slice(caret);
+    const ins = (before && !/\s$/.test(before) ? ' ' : '') + (before.trim() && !/[.!?]\s*$/.test(before) ? t[0].toLowerCase() + t.slice(1) : t) + (after && !/^\s/.test(after) ? ' ' : '');
+    ta.value = before + ins + after; caret += ins.length;
+  } else ta.value = ta.value.trim() ? ta.value.trim().replace(/[.!?]?$/, m => m || '.') + ' ' + t : t;
   if (isList()) {
     const have = new Set((current.items || []).map(i => i.t.toLowerCase()));
     current.items = [...(current.items || []), ...Smart.parseList(t).filter(x => !have.has(x.toLowerCase())).map(x => ({ t: x, done: false }))];
@@ -433,7 +518,22 @@ async function finishAppend(text, audio) {
   box.textContent = ''; box.classList.add('hidden');
   if (text) await appendText(text);
 }
-$('noteDlg').addEventListener('close', () => { if (recording && appendMode) stop(); });
+$('noteDlg').addEventListener('close', async () => {
+  if (recording && appendMode) await stop();
+  // una nota scritta lasciata vuota non viene tenuta
+  if (current?.draft && !current.text?.trim() && !current.title?.trim() && !current.items?.length) {
+    if (await DB.get(current.id)) { await DB.del(current.id); Cloud.markDeleted(current.id); }
+    render();
+  }
+});
+$('btnPinNote').onclick = async () => {
+  syncFromForm(); current.pinned = !current.pinned;
+  $('btnPinNote').textContent = current.pinned ? '📍 Sgancia' : '📌 Fissa';
+  await saveNote(current);
+};
+// Inserire nel punto del testo toccato
+let caret = null;
+for (const ev of ['click', 'keyup', 'select']) $('noteText').addEventListener(ev, () => { caret = $('noteText').selectionStart; });
 // Evento da calendario
 let currentEvent = null;
 function renderEvent() {
@@ -467,7 +567,9 @@ $('btnSave').onclick = async () => {
     const old = Object.fromEntries((current.items || []).map(i => [i.t.toLowerCase(), i.done]));
     current.items = Smart.parseList(text).map(t => ({ t, done: !!old[t.toLowerCase()] }));
   }
-  Object.assign(current, { title: $('noteTitle').value, category, text });
+  Object.assign(current, { title: $('noteTitle').value.trim() || (text ? makeTitle(text) : 'Nota'), category, text });
+  if (!text.trim() && !current.items?.length && current.draft) return $('noteDlg').close();
+  delete current.draft;
   await saveNote(current); $('noteDlg').close();
 };
 $('btnRetry').onclick = async () => {

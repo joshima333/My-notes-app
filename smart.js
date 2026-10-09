@@ -86,7 +86,8 @@ const Smart = (() => {
       `UID:${crypto.randomUUID()}@notevocali`, `DTSTAMP:${ymdhms(new Date())}`,
       ev.allDay ? `DTSTART;VALUE=DATE:${ymd(ev.start)}` : `DTSTART:${ymdhms(ev.start)}`,
       ev.allDay ? `DTEND;VALUE=DATE:${ymd(end)}` : `DTEND:${ymdhms(end)}`,
-      `SUMMARY:${esc(ev.title)}`, `DESCRIPTION:${esc(details)}`, 'END:VEVENT', 'END:VCALENDAR'].join('\r\n');
+      `SUMMARY:${esc(ev.title)}`, `DESCRIPTION:${esc(details)}`,
+      'BEGIN:VALARM', 'ACTION:DISPLAY', `DESCRIPTION:${esc(ev.title)}`, ev.allDay ? 'TRIGGER:-PT15H' : 'TRIGGER:-PT30M', 'END:VALARM', 'END:VEVENT', 'END:VCALENDAR'].join('\r\n');
     return 'data:text/calendar;charset=utf-8,' + encodeURIComponent(ics);
   }
   const fmtEvent = ev => ev.start.toLocaleDateString('it-IT', { weekday: 'long', day: 'numeric', month: 'long' }) +

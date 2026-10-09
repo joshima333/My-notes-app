@@ -26,6 +26,7 @@
   <section id="recorder" class="card">
     <div id="chips" class="chips" role="radiogroup" aria-label="Raccolta"></div>
     <button id="btnRec" class="rec">● Registra</button>
+    <button id="btnWrite" type="button" class="writebtn">✍️ Scrivi una nota</button>
     <div id="timer" class="muted">00:00</div>
     <div id="live" class="live"></div>
     <p id="status" class="status hidden"></p>
@@ -42,6 +43,7 @@
     <div class="folderhead">
       <button id="btnBack" class="back">‹ Raccolte</button>
       <h2 id="folderTitle"></h2>
+      <button id="btnEditCat" type="button" class="back editcat" aria-label="Modifica raccolta">✏️</button>
     </div>
     <ul id="notes" class="notes"></ul>
   </section>
@@ -73,6 +75,7 @@
     <div id="appendLive" class="live appendlive hidden"></div>
     <textarea id="noteText" rows="8"></textarea>
     <div class="row">
+      <button type="button" id="btnPinNote">📌 Fissa</button>
       <button type="button" id="btnRetry" class="hidden">🔁 Riprova trascrizione</button>
       <button type="button" id="btnCopy">📋 Copia</button>
       <button type="button" id="btnShare">📤 Condividi</button>
@@ -86,6 +89,30 @@
 </dialog>
 
 <form id="addItemForm" hidden></form>
+
+<dialog id="moveDlg">
+  <form method="dialog" class="dlg">
+    <h2>Sposta in…</h2>
+    <div id="moveList" class="movelist"></div>
+    <div class="row"><button>Annulla</button></div>
+  </form>
+</dialog>
+
+<dialog id="catDlg">
+  <form method="dialog" class="dlg">
+    <h2>Modifica raccolta</h2>
+    <label>Nome <input id="catName" maxlength="30"></label>
+    <label>Emoji <input id="catEmoji" maxlength="4" class="emojiinput"></label>
+    <div id="emojiGrid" class="emojigrid"></div>
+    <div class="muted small">Colore</div>
+    <div id="colorGrid" class="colorgrid"></div>
+    <div class="row">
+      <button type="button" id="btnDelCat" class="danger">🗑️ Elimina raccolta</button>
+      <button type="button" id="btnSaveCat" class="primary">Salva</button>
+    </div>
+    <p class="muted small">Suggerimento: nella pagina principale tieni premuta una cartella e trascinala per cambiare l'ordine.</p>
+  </form>
+</dialog>
 
 <dialog id="settingsDlg">
   <form method="dialog" class="dlg">
@@ -138,6 +165,7 @@
 <script src="db.js"></script>
 <script src="smart.js"></script>
 <script src="cloud.js"></script>
+<script src="vendor/sortable.min.js"></script>
 <script src="app.js"></script>
 </body>
 </html>

@@ -170,3 +170,22 @@ html{background:var(--bg1)}
 .appendlive{text-align:left;font-size:.95rem;background:var(--glass);border-radius:14px;padding:10px 12px;min-height:0}
 .appendlive:empty::before{content:"Parla, il testo si aggiunge alla nota"}
 .dlg{grid-template-columns:minmax(0,1fr)}.dlg > *{min-width:0}
+/* Nota scritta */
+.writebtn{justify-self:center;border-radius:999px!important;padding:8px 18px!important;font-size:.92rem}
+/* Sposta (scorri a destra) */
+.smove{position:absolute;top:0;left:0;bottom:0;width:0;z-index:0;overflow:hidden;white-space:nowrap;
+  background:#5b5bf7!important;color:#fff!important;border:none!important;border-radius:0!important;box-shadow:none!important;
+  -webkit-backdrop-filter:none!important;backdrop-filter:none!important;font-weight:600;padding:0!important;display:flex;align-items:center;justify-content:center}
+.movelist{display:flex;flex-wrap:wrap;gap:8px}
+/* Modifica raccolta */
+.editcat{margin-left:auto;padding:8px 12px!important}
+.emojiinput{font-size:1.4rem;width:72px;text-align:center}
+.emojigrid{display:grid;grid-template-columns:repeat(8,1fr);gap:6px}
+.emojigrid button{padding:6px 0!important;font-size:1.3rem;border-radius:10px!important}
+.colorgrid{display:flex;flex-wrap:wrap;gap:10px}
+.colorgrid button{width:34px;height:34px;border-radius:50%!important;padding:0!important;background:hsl(var(--h) 85% 62%)!important;border:3px solid transparent!important}
+.colorgrid button.on{border-color:var(--text)!important}
+/* Trascinamento cartelle */
+.dragghost{opacity:.35}
+.dragchosen{transform:scale(1.04);box-shadow:0 12px 30px rgba(40,30,90,.25)!important}
+.folder{-webkit-user-select:none;user-select:none;-webkit-touch-callout:none}
