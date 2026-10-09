@@ -60,12 +60,13 @@
   <form method="dialog" class="dlg">
     <h2>Impostazioni</h2>
     <p id="privacyInfo" class="summary small"></p>
-    <label>Qualità trascrizione sul telefono
+    <label id="modelRow">Qualità trascrizione sul telefono
       <select id="model">
         <option value="Xenova/whisper-small">Alta (~250 MB, più lenta)</option>
         <option value="Xenova/whisper-base">Veloce (~80 MB, meno precisa)</option>
       </select>
     </label>
+    <button type="button" id="btnFaceIdSetup">🙂 Attiva Face ID</button>
     <button type="button" id="btnPin">🔒 Cambia PIN</button>
     <label>Tipi di nota (uno per riga)
       <textarea id="catsInput" rows="6"></textarea>
@@ -80,6 +81,7 @@
     <p id="lockMsg">Inserisci il PIN</p>
     <input id="pinInput" type="password" inputmode="numeric" pattern="[0-9]*" maxlength="8" autocomplete="off">
     <button class="primary">Sblocca</button>
+    <button type="button" id="btnFaceId" class="hidden">🙂 Usa Face ID</button>
   </form>
 </div>
 

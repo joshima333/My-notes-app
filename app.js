@@ -60,12 +60,16 @@ async function checkLocalSR() {
 }
 const setStatus = t => { $('status').textContent = t; $('status').classList.toggle('hidden', !t); };
 
-let rec = null, media = null, chunks = [], finalText = '', recording = false, t0 = 0, tick;
+let rec = null, media = null, chunks = [], finalText = '', lastInterim = '', recording = false, t0 = 0, tick;
+// Su iPhone Whisper è troppo pesante: si usa la dettatura Apple (in diretta)
+const useApple = () => IS_IOS && !!SR;
+const flushInterim = () => { if (lastInterim.trim()) finalText += lastInterim.trim() + ' '; lastInterim = ''; };
 
 async function start() {
-  finalText = ''; chunks = [];
+  finalText = ''; lastInterim = ''; chunks = [];
   $('live').innerHTML = '';
   liveLocal = await checkLocalSR();
+  const live = liveLocal || useApple();
   try {
     const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
     media = new MediaRecorder(stream);
@@ -73,13 +77,13 @@ async function start() {
     media.start(1000);
   } catch (e) {
     media = null;
-    if (!liveLocal) return alert('Impossibile usare il microfono: controlla i permessi.');
+    if (!live) return alert('Impossibile usare il microfono: controlla i permessi.');
   }
 
-  if (liveLocal) {
+  if (live) {
     rec = new SR();
     rec.lang = 'it-IT';
-    rec.processLocally = true;
+    if (liveLocal) rec.processLocally = true;
     rec.continuous = true;
     rec.interimResults = true;
     rec.onresult = e => {
@@ -89,9 +93,16 @@ async function start() {
         if (r.isFinal) finalText += r[0].transcript.trim() + ' ';
         else interim += r[0].transcript;
       }
+      lastInterim = interim;
       $('live').innerHTML = esc(finalText) + `<span class="interim">${esc(interim)}</span>`;
     };
-    rec.onend = () => { if (recording) try { rec.start() } catch {} };
+    // iPhone a volte non "chiude" l'ultima frase: la salviamo comunque
+    rec.onend = () => { flushInterim(); if (recording) try { rec.start() } catch {} };
+    rec.onerror = e => {
+      // Se microfono conteso tra registrazione audio e dettatura, priorità al testo
+      if (e.error === 'audio-capture' && media) { media.stream.getTracks().forEach(t => t.stop()); media = null; chunks = []; }
+      if (e.error === 'not-allowed') alert('Permesso negato: consenti microfono e riconoscimento vocale.');
+    };
     rec.start();
   } else {
     $('live').innerHTML = '<span class="interim">Sto registrando… il testo apparirà dopo lo stop.</span>';
@@ -111,7 +122,7 @@ async function stop() {
   clearInterval(tick);
   $('btnRec').textContent = '● Registra';
   $('btnRec').classList.remove('on');
-  if (rec) { rec.onend = null; rec.stop(); rec = null; }
+  if (rec) { const r = rec; rec = null; r.onend = flushInterim; r.stop(); }
   let audio = null;
   if (media) {
     await new Promise(r => { media.onstop = r; media.stop(); });
@@ -119,7 +130,8 @@ async function stop() {
     if (chunks.length) audio = new Blob(chunks, { type: media.mimeType || 'audio/webm' });
     media = null;
   }
-  await new Promise(r => setTimeout(r, 600));
+  await new Promise(r => setTimeout(r, 800));
+  flushInterim();
   const text = finalText.trim();
   $('live').innerHTML = '';
   if (!text && !audio) return;
@@ -159,6 +171,10 @@ async function to16kMono(blob) {
 }
 
 function transcribe(note) {
+  if (IS_IOS) { // Whisper fa chiudere Safari su iPhone
+    Object.assign(note, { pending: false, failed: true }); DB.put(note).then(render);
+    return;
+  }
   if (!queue.some(n => n.id === note.id)) queue.push(note);
   nextJob();
 }
@@ -237,7 +253,7 @@ function openNote(n) {
   if (audioURL) URL.revokeObjectURL(audioURL);
   if (n.audio) { audioURL = URL.createObjectURL(n.audio); $('noteAudio').src = audioURL; }
   $('noteAudio').classList.toggle('hidden', !n.audio);
-  $('btnRetry').classList.toggle('hidden', !(n.audio && !n.pending && (n.failed || !n.text)));
+  $('btnRetry').classList.toggle('hidden', IS_IOS || !(n.audio && !n.pending && (n.failed || !n.text)));
   $('noteDlg').showModal();
 }
 const exportText = () => `${$('noteTitle').value}\n[${$('noteCat').value}]\n\n${$('noteText').value}`;
@@ -269,6 +285,7 @@ $('btnDownload').onclick = () => {
 // ---------- Settings ----------
 function openSettings() {
   $('model').value = settings.model;
+  $('modelRow').classList.toggle('hidden', IS_IOS);
   $('privacyInfo').textContent = liveLocalInfo;
   $('catsInput').value = settings.cats.join('\n');
   $('settingsDlg').showModal();
@@ -292,14 +309,52 @@ function lock(step) {
   locked = true;
   pinStep = step || (localStorage.pinHash ? 'unlock' : 'new');
   $('lockMsg').textContent = pinStep === 'unlock' ? 'Inserisci il PIN' : 'Crea un PIN (4-8 cifre)';
+  $('btnFaceId').classList.toggle('hidden', !(pinStep === 'unlock' && localStorage.credId));
   $('notes').innerHTML = '';
   $('noteDlg').open && $('noteDlg').close();
   $('settingsDlg').open && $('settingsDlg').close();
   $('lock').classList.remove('hidden');
   $('pinInput').value = '';
-  setTimeout(() => $('pinInput').focus(), 50);
+  if (pinStep === 'unlock' && localStorage.credId) faceIdUnlock(true);
+  else setTimeout(() => $('pinInput').focus(), 50);
 }
-function unlock() { locked = false; $('lock').classList.add('hidden'); render(); }
+function unlock() {
+  locked = false; $('lock').classList.add('hidden'); render();
+  if (!localStorage.credId && !localStorage.faceIdAsked && window.PublicKeyCredential) {
+    localStorage.faceIdAsked = 1;
+    if (confirm('Vuoi sbloccare l\'app con Face ID?')) setupFaceId();
+  }
+}
+
+// Face ID / impronta tramite passkey del telefono (verifica fatta dal telefono, nulla viene inviato)
+const b64 = buf => btoa(String.fromCharCode(...new Uint8Array(buf)));
+const unb64 = s => Uint8Array.from(atob(s), c => c.charCodeAt(0));
+async function setupFaceId() {
+  try {
+    const cred = await navigator.credentials.create({ publicKey: {
+      challenge: crypto.getRandomValues(new Uint8Array(32)),
+      rp: { name: 'Note Vocali' },
+      user: { id: crypto.getRandomValues(new Uint8Array(16)), name: 'Note Vocali', displayName: 'Note Vocali' },
+      pubKeyCredParams: [{ type: 'public-key', alg: -7 }, { type: 'public-key', alg: -257 }],
+      authenticatorSelection: { authenticatorAttachment: 'platform', userVerification: 'required' },
+      timeout: 60000,
+    }});
+    localStorage.credId = b64(cred.rawId);
+    alert('Face ID attivato ✅');
+  } catch (e) { alert('Face ID non attivato: ' + e.message); }
+}
+async function faceIdUnlock(silent) {
+  try {
+    await navigator.credentials.get({ publicKey: {
+      challenge: crypto.getRandomValues(new Uint8Array(32)),
+      allowCredentials: [{ type: 'public-key', id: unb64(localStorage.credId) }],
+      userVerification: 'required', timeout: 60000,
+    }});
+    unlock();
+  } catch (e) { if (!silent) $('lockMsg').textContent = 'Face ID non riuscito, usa il PIN'; }
+}
+$('btnFaceId').onclick = () => faceIdUnlock(false);
+$('btnFaceIdSetup').onclick = setupFaceId;
 $('lockForm').onsubmit = async e => {
   e.preventDefault();
   const pin = $('pinInput').value;
@@ -317,19 +372,26 @@ $('lockForm').onsubmit = async e => {
   }
 };
 $('btnPin').onclick = () => lock('new');
-document.addEventListener('visibilitychange', () => { if (document.hidden && !locked) lock(); });
+// Blocca solo se l'app resta in background più di 5 minuti
+const LOCK_AFTER = 5 * 60 * 1000;
+document.addEventListener('visibilitychange', () => {
+  if (document.hidden) { if (!locked) localStorage.lastSeen = Date.now(); }
+  else if (!locked && Date.now() - (+localStorage.lastSeen || 0) > LOCK_AFTER) lock();
+});
+window.addEventListener('pagehide', () => { if (!locked) localStorage.lastSeen = Date.now(); });
 
 // ---------- Privacy info ----------
 let liveLocalInfo = '';
 checkLocalSR().then(ok => {
   liveLocalInfo = '🔐 Note e audio restano solo su questo telefono. ' + (ok
     ? 'Trascrizione in diretta eseguita sul telefono.'
+    : useApple() ? 'Trascrizione con la dettatura Apple: l\'audio può passare dai server Apple in forma anonima (mai Google).'
     : 'Trascrizione eseguita sul telefono con Whisper, dopo lo stop. Da internet si scarica solo il modello, una volta.');
 });
 
 if (navigator.storage?.persist) navigator.storage.persist();
 fillCats();
-lock();
+if (localStorage.pinHash && Date.now() - (+localStorage.lastSeen || 0) < LOCK_AFTER) unlock(); else lock();
 // Riprende trascrizioni rimaste a metà
 DB.all().then(ns => ns.filter(n => n.pending && n.audio).forEach(transcribe));
 
