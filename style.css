@@ -42,7 +42,7 @@ h1{font-size:1.15rem;font-weight:650;letter-spacing:-.01em;margin:0}
 main{max-width:640px;margin:0 auto;padding:0 16px 40px}
 .card{border-radius:28px;padding:20px;display:grid;gap:14px;margin-bottom:20px}
 label{display:grid;gap:6px;font-size:.85rem;color:var(--muted);font-weight:500}
-input,select,textarea,button{font:inherit;color:var(--text);border-radius:14px;padding:11px 14px;outline:none}
+input,select,textarea,button{max-width:100%;font:inherit;color:var(--text);border-radius:14px;padding:11px 14px;outline:none}
 input,select,textarea{box-shadow:inset 0 1px 2px rgba(0,0,0,.06)}
 input:focus,select:focus,textarea:focus{border-color:var(--accent)}
 input::placeholder,textarea::placeholder{color:var(--muted)}
@@ -91,8 +91,9 @@ dialog::backdrop{background:rgba(20,15,40,.25);-webkit-backdrop-filter:blur(6px)
 audio{width:100%;border-radius:999px}
 .lock{position:fixed;inset:0;z-index:10;display:grid;place-items:center;padding:16px;
   -webkit-backdrop-filter:blur(30px) saturate(160%);backdrop-filter:blur(30px) saturate(160%);background:rgba(120,120,160,.15)}
-.lockcard{width:min(340px,100%);text-align:center}
+.lockcard{width:100%;max-width:340px;margin:0;text-align:center}
 .lockicon{font-size:2.4rem}
 .lock p{margin:0}
-#pinInput{text-align:center;font-size:1.6rem;letter-spacing:.5em}
+#pinInput{width:100%;min-width:0;text-align:center;font-size:1.6rem;letter-spacing:.5em}
 .status{font-size:.85rem;color:var(--muted);text-align:center}
+.filters select{flex:0 0 38%}
