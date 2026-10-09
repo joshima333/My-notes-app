@@ -137,11 +137,12 @@ async function stop() {
   $('live').innerHTML = '';
   if (!text && !audio) return;
   const pending = !text && !!audio;
+  const items = Smart.isShopping(selCat()) && text ? Smart.parseList(text).map(t => ({ t, done: false })) : null;
   const note = {
     id: crypto.randomUUID(), created: Date.now(),
     category: selCat(),
     title: text ? makeTitle(text) : 'Nota vocale',
-    text, audio, pending, duration: Math.round((Date.now() - t0) / 1000),
+    text, audio, pending, items, duration: Math.round((Date.now() - t0) / 1000),
   };
   await saveNote(note);
   if (pending) transcribe(note); else openNote(note);
@@ -205,6 +206,7 @@ async function nextJob() {
       };
       worker.postMessage({ id: note.id, audio, model: settings.model }, [audio.buffer]);
     });
+    if (Smart.isShopping(note.category)) note.items = Smart.parseList(text).map(t => ({ t, done: false }));
     Object.assign(note, { text, pending: false, failed: false, attempts: 0, title: note.title === 'Nota vocale' && text ? makeTitle(text) : note.title });
     await saveNote(note);
     if (!$('noteDlg').open && !locked) openNote(note);
@@ -228,8 +230,16 @@ const noteItem = (n, showCat) => `
     <div class="meta">${showCat ? `<span class="tag">${emoji(n.category)} ${esc(n.category)}</span>` : ''}
       <span>${fmtDate(n.created)}</span>${n.audio || n.hasAudio ? '<span>🔊</span>' : ''}</div>
     <div class="t">${esc(n.title)}</div>
-    <div class="p">${n.pending ? '⏳ Trascrizione in corso…' : n.failed ? '⚠️ Trascrizione non riuscita' : esc(n.text)}</div>
+    <div class="p">${n.pending ? '⏳ Trascrizione in corso…' : n.failed ? '⚠️ Trascrizione non riuscita' : notePreview(n)}</div>
   </li>`;
+function notePreview(n) {
+  if (n.items?.length) {
+    const done = n.items.filter(i => i.done).length;
+    return `✅ ${done}/${n.items.length} · ` + esc(n.items.filter(i => !i.done).map(i => i.t).join(', ') || 'tutto preso!');
+  }
+  const ev = Smart.parseEvent(n.text, new Date(n.created));
+  return (ev ? `📅 ${esc(Smart.fmtEvent(ev))} · ` : '') + esc(Smart.preview(n.text));
+}
 
 async function render() {
   if (locked) return;
@@ -251,6 +261,7 @@ async function render() {
     return;
   }
   const cats = [...settings.cats, ...new Set(all.map(n => n.category).filter(c => !settings.cats.includes(c)))];
+  renderHeader();
   $('folders').innerHTML = cats.map(c => {
     const list = all.filter(n => n.category === c);
     return `<button type="button" class="folder" data-cat="${esc(c)}" style="--h:${hue(c)}">
@@ -290,8 +301,39 @@ function openNote(n) {
   showAudio(n.audio);
   $('btnLoadAudio').classList.toggle('hidden', !!n.audio || !n.hasAudio);
   $('btnRetry').classList.toggle('hidden', IS_IOS || !(n.audio && !n.pending && (n.failed || !n.text)));
+  if (Smart.isShopping(n.category) && !n.items && n.text) n.items = Smart.parseList(n.text).map(t => ({ t, done: false }));
+  renderChecklist();
+  renderEvent();
   $('noteDlg').showModal();
 }
+// Lista spuntabile
+function renderChecklist() {
+  const items = current.items || [];
+  $('checklist').classList.toggle('hidden', !items.length);
+  $('checklist').innerHTML = items.map((it, i) =>
+    `<li class="${it.done ? 'done' : ''}" data-i="${i}"><span class="box">${it.done ? '✓' : ''}</span><span>${esc(it.t)}</span></li>`).join('');
+}
+$('checklist').onclick = async e => {
+  const li = e.target.closest('li'); if (!li) return;
+  const it = current.items[+li.dataset.i]; it.done = !it.done;
+  renderChecklist(); await saveNote(current);
+};
+// Evento da calendario
+let currentEvent = null;
+function renderEvent() {
+  currentEvent = Smart.parseEvent($('noteText').value, new Date(current.created));
+  $('eventBox').classList.toggle('hidden', !currentEvent);
+  if (!currentEvent) return;
+  $('evTitle').textContent = currentEvent.title;
+  $('evWhen').textContent = Smart.fmtEvent(currentEvent);
+}
+$('noteText').addEventListener('input', () => renderEvent());
+$('eventBox').onclick = e => {
+  const b = e.target.closest('[data-cal]'); if (!b || !currentEvent) return;
+  const url = Smart.calendarLink(b.dataset.cal, currentEvent, $('noteText').value);
+  if (b.dataset.cal === 'apple') { const a = document.createElement('a'); a.href = url; a.download = 'evento.ics'; a.click(); }
+  else window.open(url, '_blank');
+};
 $('btnLoadAudio').onclick = async () => {
   const b = $('btnLoadAudio'); b.disabled = true; b.textContent = '⏳ Scarico…';
   try {
@@ -304,7 +346,12 @@ $('btnLoadAudio').onclick = async () => {
 const exportText = () => `${$('noteTitle').value}\n[${$('noteCat').value}]\n\n${$('noteText').value}`;
 
 $('btnSave').onclick = async () => {
-  Object.assign(current, { title: $('noteTitle').value, category: $('noteCat').value, text: $('noteText').value });
+  const text = $('noteText').value, category = $('noteCat').value;
+  if (Smart.isShopping(category) && (text !== current.text || !current.items)) {
+    const old = Object.fromEntries((current.items || []).map(i => [i.t.toLowerCase(), i.done]));
+    current.items = Smart.parseList(text).map(t => ({ t, done: !!old[t.toLowerCase()] }));
+  }
+  Object.assign(current, { title: $('noteTitle').value, category, text });
   await saveNote(current); $('noteDlg').close();
 };
 $('btnRetry').onclick = async () => {
@@ -333,6 +380,7 @@ function openSettings() {
   $('modelRow').classList.toggle('hidden', IS_IOS);
   $('privacyInfo').textContent = liveLocalInfo;
   $('catsInput').value = settings.cats.join('\n');
+  $('nameInput').value = localStorage.name || '';
   $('accountBox').classList.toggle('hidden', !Cloud.enabled);
   $('btnLogout').classList.toggle('hidden', !Cloud.enabled);
   $('accountEmail').textContent = Cloud.email;
@@ -341,6 +389,7 @@ function openSettings() {
 $('btnSettings').onclick = openSettings;
 $('btnSaveSettings').onclick = () => {
   settings.model = $('model').value;
+  localStorage.name = $('nameInput').value.trim();
   const cats = $('catsInput').value.split('\n').map(s => s.trim()).filter(Boolean);
   settings.cats = cats.length ? cats : DEFAULT_CATS;
   fillCats(); render();
@@ -355,9 +404,36 @@ $('btnLogout').onclick = async () => {
 // ---------- Sincronizzazione: indicatore ----------
 Cloud.onChange = () => { fillCats(); render(); };
 Cloud.onStatus = (s, msg) => {
-  const map = { sync: ['⏳', 'Sincronizzazione…'], ok: ['☁️', 'Note salvate nel tuo account (cifrate)'], error: ['⚠️', 'Sincronizzazione non riuscita: ' + (msg || '') + '. Riprovo da sola.'] };
-  $('syncIcon').textContent = map[s][0]; $('syncText').textContent = map[s][1];
+  const map = { sync: ['⏳ Salvo…', 'Sincronizzazione…'], ok: ['☁️ Salvato', 'Note salvate nel tuo account (cifrate)'], error: ['⚠️ Non salvato', 'Sincronizzazione non riuscita: ' + (msg || '') + '. Riprovo da sola.'] };
+  $('syncIcon').textContent = map[s][0]; $('syncIcon').title = map[s][1]; $('syncIcon').classList.remove('hidden');
+  $('syncText').textContent = map[s][1];
 };
+
+// ---------- Saluto, data, meteo ----------
+function renderHeader() {
+  const name = localStorage.name;
+  $('hello').textContent = name ? `Ciao, ${name} 👋` : 'Ciao 👋';
+  const d = new Date().toLocaleDateString('it-IT', { weekday: 'long', day: 'numeric', month: 'long' });
+  $('today').textContent = d[0].toUpperCase() + d.slice(1);
+}
+async function renderWeather(force) {
+  try {
+    const w = await Weather.load(force);
+    if (w) { $('weather').innerHTML = `<span>${w.icon}</span><span>${w.temp}°</span>`; $('weather').title = w.label; }
+    else $('weather').innerHTML = '<span>📍</span>';
+  } catch { }
+}
+$('weather').onclick = () => {
+  const w = JSON.parse(localStorage.wx || 'null');
+  if (w) alert(`${w.icon} ${w.label}, ${w.temp}°C`);
+  renderWeather(true);
+};
+function askName() {
+  if (localStorage.name || localStorage.nameAsked) return;
+  localStorage.nameAsked = 1;
+  const n = (prompt('Come ti chiami?') || '').trim();
+  if (n) { localStorage.name = n; localStorage.catsUpdated = Date.now(); Cloud.schedule(); renderHeader(); }
+}
 
 // ---------- Account ----------
 function showAuth(msg) {
@@ -407,6 +483,8 @@ function lock(step) {
 }
 function unlock() {
   locked = false; $('lock').classList.add('hidden'); render(); Cloud.sync && Cloud.sync();
+  renderWeather();
+  setTimeout(askName, Cloud.enabled ? 2500 : 300); // prima lascia arrivare il nome dall'account
   if (!localStorage.credId && !localStorage.faceIdAsked && window.PublicKeyCredential) {
     localStorage.faceIdAsked = 1;
     if (confirm('Vuoi sbloccare l\'app con Face ID?')) setupFaceId();

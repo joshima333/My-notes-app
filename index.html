@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
-<meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' https://cdn.jsdelivr.net 'wasm-unsafe-eval'; worker-src 'self' blob: https://cdn.jsdelivr.net; connect-src 'self' https://cdn.jsdelivr.net https://huggingface.co https://*.huggingface.co https://*.hf.co https://*.supabase.co wss://*.supabase.co; img-src 'self' data: blob:; media-src 'self' blob:; style-src 'self' 'unsafe-inline'">
+<meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' https://cdn.jsdelivr.net 'wasm-unsafe-eval'; worker-src 'self' blob: https://cdn.jsdelivr.net; connect-src 'self' https://cdn.jsdelivr.net https://huggingface.co https://*.huggingface.co https://*.hf.co https://*.supabase.co wss://*.supabase.co https://api.open-meteo.com; img-src 'self' data: blob:; media-src 'self' blob:; style-src 'self' 'unsafe-inline'">
 <meta name="theme-color" content="#c9d6ff">
 <meta name="apple-mobile-web-app-capable" content="yes">
 <title>Note Vocali</title>
@@ -14,8 +14,11 @@
 </head>
 <body>
 <header>
-  <h1>🎙️ Note Vocali</h1>
-  <span id="syncIcon" class="sync" title="Sincronizzazione"></span>
+  <div class="hello">
+    <h1 id="hello">Ciao 👋</h1>
+    <div id="today" class="today"></div>
+  </div>
+  <button id="weather" class="weather" type="button" aria-label="Meteo"></button>
   <button id="btnSettings" class="icon" aria-label="Impostazioni">⚙️</button>
 </header>
 
@@ -30,6 +33,7 @@
 
   <section id="home">
     <input id="search" type="search" placeholder="Cerca in tutte le note…">
+    <div class="sectionhead"><h2>Raccolte</h2><span id="syncIcon" class="syncpill hidden"></span></div>
     <div id="folders" class="folders"></div>
     <ul id="results" class="notes hidden"></ul>
   </section>
@@ -49,7 +53,17 @@
     <select id="noteCat"></select>
     <audio id="noteAudio" controls class="hidden"></audio>
     <button type="button" id="btnLoadAudio" class="hidden">🔊 Scarica audio</button>
-    <textarea id="noteText" rows="10"></textarea>
+    <div id="eventBox" class="eventbox hidden">
+      <div class="evtitle">📅 <b id="evTitle"></b></div>
+      <div id="evWhen" class="muted small"></div>
+      <div class="row left">
+        <button type="button" data-cal="google">Google</button>
+        <button type="button" data-cal="outlook">Outlook</button>
+        <button type="button" data-cal="apple">Apple</button>
+      </div>
+    </div>
+    <ul id="checklist" class="checklist hidden"></ul>
+    <textarea id="noteText" rows="8"></textarea>
     <div class="row">
       <button type="button" id="btnRetry" class="hidden">🔁 Riprova trascrizione</button>
       <button type="button" id="btnCopy">📋 Copia</button>
@@ -66,6 +80,9 @@
 <dialog id="settingsDlg">
   <form method="dialog" class="dlg">
     <h2>Impostazioni</h2>
+    <label>Il tuo nome
+      <input id="nameInput" placeholder="Es. Jovana" autocomplete="given-name">
+    </label>
     <div id="accountBox" class="summary small hidden">
       <div>👤 <b id="accountEmail"></b></div>
       <div id="syncText" class="muted"></div>
@@ -109,6 +126,7 @@
 <script src="config.js"></script>
 <script src="vendor/supabase.js"></script>
 <script src="db.js"></script>
+<script src="smart.js"></script>
 <script src="cloud.js"></script>
 <script src="app.js"></script>
 </body>

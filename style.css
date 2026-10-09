@@ -124,3 +124,24 @@ header h1{flex:1}
 .chip{-webkit-backdrop-filter:none!important;backdrop-filter:none!important;background:rgba(255,255,255,.55)!important;box-shadow:inset 0 1px 0 var(--edge),0 2px 8px rgba(40,30,90,.08)!important}
 @media (prefers-color-scheme:dark){.chip{background:rgba(255,255,255,.1)!important}}
 html{background:var(--bg1)}
+/* Saluto, data, meteo */
+.hello{flex:1;min-width:0}
+.hello h1{font-size:1.25rem;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.today{font-size:.8rem;color:var(--muted);margin-top:1px}
+.weather{display:flex;align-items:center;gap:4px;border:none!important;background:none!important;box-shadow:none!important;-webkit-backdrop-filter:none!important;backdrop-filter:none!important;padding:4px 6px!important;font-size:1rem;font-weight:600}
+.weather span:first-child{font-size:1.5rem}
+/* Titolo sezione + stato salvataggio */
+.sectionhead{display:flex;align-items:center;justify-content:space-between;margin:2px 4px 10px}
+.sectionhead h2{margin:0;font-size:1.05rem}
+.syncpill{font-size:.75rem;color:var(--muted);background:var(--glass);border:1px solid var(--edge-dim);border-radius:999px;padding:3px 10px}
+/* Evento */
+.eventbox{background:rgba(91,91,247,.1);border-radius:16px;padding:12px 14px;display:grid;gap:6px}
+.evtitle{font-size:1rem}
+.row.left{justify-content:flex-start}
+.eventbox button{padding:7px 12px;font-size:.85rem}
+/* Lista spuntabile */
+.checklist{list-style:none;margin:0;padding:0;display:grid;gap:6px}
+.checklist li{display:flex;align-items:center;gap:10px;padding:10px 12px;border-radius:14px;background:var(--glass);border:1px solid var(--edge-dim);cursor:pointer;user-select:none}
+.checklist .box{width:24px;height:24px;flex:0 0 24px;border-radius:8px;border:2px solid var(--accent);display:grid;place-items:center;color:#fff;font-weight:700;font-size:.85rem}
+.checklist li.done .box{background:var(--accent)}
+.checklist li.done span:last-child{text-decoration:line-through;color:var(--muted)}

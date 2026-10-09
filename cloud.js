@@ -65,7 +65,7 @@ const Cloud = (() => {
       await sb.from('user_settings').update({ verifier: await encJSON('ok') }).eq('user_id', user.id);
     }
     const prev = await DB.getMeta('keyUser');
-    if (prev && prev !== user.id) { await DB.clear(); localStorage.removeItem('catsUpdated'); }
+    if (prev && prev !== user.id) { await DB.clear(); localStorage.removeItem('catsUpdated'); localStorage.removeItem('name'); }
     await DB.setMeta('key', key);
     await DB.setMeta('keyUser', user.id);
     // Le note già presenti sul telefono vengono caricate sull'account
@@ -79,7 +79,7 @@ const Cloud = (() => {
     await sb.auth.signOut();
     await DB.clear();
     for (const k of ['key', 'keyUser', 'dead']) await DB.delMeta(k);
-    localStorage.removeItem('catsUpdated');
+    localStorage.removeItem('catsUpdated'); localStorage.removeItem('name');
     key = user = null;
   };
 
@@ -97,7 +97,7 @@ const Cloud = (() => {
   };
 
   const pick = n => ({ created: n.created, category: n.category, title: n.title, text: n.text,
-    duration: n.duration, pending: !!n.pending, failed: !!n.failed, mime: n.audio?.type || n.mime || '' });
+    duration: n.duration, pending: !!n.pending, failed: !!n.failed, mime: n.audio?.type || n.mime || '', items: n.items || null });
 
   async function sync() {
     if (!key || !user || !navigator.onLine) return;
@@ -143,9 +143,12 @@ const Cloud = (() => {
       const { data: st } = await sb.from('user_settings').select('data,updated').eq('user_id', user.id).single();
       const localUpd = +localStorage.catsUpdated || 0;
       if (st?.data && st.updated > localUpd) {
-        localStorage.cats = JSON.stringify(await decJSON(st.data)); localStorage.catsUpdated = st.updated; changed = true;
+        const prof = await decJSON(st.data);
+        if (Array.isArray(prof)) localStorage.cats = JSON.stringify(prof);
+        else { localStorage.cats = JSON.stringify(prof.cats || []); if (prof.name) localStorage.name = prof.name; }
+        localStorage.catsUpdated = st.updated; changed = true;
       } else if (localUpd > (st?.updated || 0)) {
-        await sb.from('user_settings').update({ data: await encJSON(JSON.parse(localStorage.cats || '[]')), updated: localUpd }).eq('user_id', user.id);
+        await sb.from('user_settings').update({ data: await encJSON({ cats: JSON.parse(localStorage.cats || '[]'), name: localStorage.name || '' }), updated: localUpd }).eq('user_id', user.id);
       }
       api.onStatus('ok');
       if (changed) api.onChange();
