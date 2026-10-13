@@ -1,0 +1,81 @@
+<!doctype html>
+<html lang="it">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="default">
+<meta name="apple-mobile-web-app-title" content="Cani">
+<meta name="theme-color" content="#e9e4ff">
+<title>Diario Cani</title>
+<link rel="manifest" href="manifest.json">
+<link rel="icon" href="icon.svg">
+<link rel="apple-touch-icon" href="icon.svg">
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+<div class="bg"><i></i><i></i><i></i></div>
+
+<!-- Login -->
+<section id="login" class="screen" hidden>
+  <div class="glass card login">
+    <h1>Diario Cani</h1>
+    <p class="muted">Accedi con lo stesso account dell'app Note.</p>
+    <input id="lEmail" type="email" placeholder="Email" autocomplete="email">
+    <input id="lPass" type="password" placeholder="Password" autocomplete="current-password">
+    <button class="btn primary" id="lGo">Accedi</button>
+    <button class="btn" id="lNew">Crea account</button>
+    <p id="lMsg" class="muted"></p>
+  </div>
+</section>
+
+<!-- App -->
+<main id="app" hidden>
+  <header class="top">
+    <div class="seg glass" id="dogSeg"></div>
+    <span id="sync" class="sync" title="Sincronizzazione"></span>
+  </header>
+  <h1 class="large" id="title"></h1>
+  <div id="view"></div>
+</main>
+
+<nav class="tabbar glass" id="tabbar" hidden>
+  <button data-tab="home" class="on"><span>🏠</span>Riepilogo</button>
+  <button data-tab="diario"><span>📖</span>Diario</button>
+  <button data-tab="stats"><span>📊</span>Statistiche</button>
+  <button data-tab="vet"><span>🩺</span>Veterinario</button>
+</nav>
+<button class="fab" id="fab" hidden aria-label="Aggiungi">+</button>
+
+<!-- Scelta tipo -->
+<dialog id="pick" class="sheet">
+  <div class="glass card">
+    <h2>Cosa vuoi segnare?</h2>
+    <div id="pickList" class="picklist"></div>
+    <button class="btn" data-close>Annulla</button>
+  </div>
+</dialog>
+
+<!-- Modulo -->
+<dialog id="form" class="sheet">
+  <form class="glass card" id="frm" method="dialog">
+    <h2 id="fTitle"></h2>
+    <div id="fBody"></div>
+    <div class="row">
+      <button type="button" class="btn danger" id="fDel" hidden>Elimina</button>
+      <button type="button" class="btn" data-close>Annulla</button>
+      <button type="submit" class="btn primary">Salva</button>
+    </div>
+  </form>
+</dialog>
+
+<div id="toast" class="toast" hidden></div>
+
+<!-- Report stampabile -->
+<div id="print"></div>
+
+<script src="../vendor/supabase.js"></script>
+<script src="../config.js"></script>
+<script src="app.js"></script>
+</body>
+</html>
