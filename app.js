@@ -422,11 +422,45 @@ function renderStats(every) {
   // parole
   const sel = $('wordsCat'), cur = sel.value;
   sel.innerHTML = '<option value="">Tutte le note</option>' + settings.cats.map(c => `<option${c === cur ? ' selected' : ''}>${esc(c)}</option>`).join('');
-  const words = Insights.topWords(cur ? every.filter(n => n.category === cur) : every, 30);
-  const wmax = words[0]?.[1] || 1;
-  $('statWords').innerHTML = words.length ? words.map(([w, c]) => `<span style="font-size:${0.85 + c / wmax * 1.1}rem;opacity:${0.55 + c / wmax * 0.45}" title="${c} volte">${esc(w)}</span>`).join('') : '<span class="muted small">Ancora poche parole: registra qualche nota!</span>';
+  const pool = cur ? every.filter(n => n.category === cur) : every;
+  renderBubbles(Insights.topWords(pool, 22), pool);
 }
-$('wordsCat').onchange = () => render();
+$('wordsCat').onchange = () => { $('wordDetail').classList.add('hidden'); render(); };
+
+// Bolle delle parole: grandezza = quante volte la usi
+const BUBBLE_HUES = [258, 330, 200, 160, 28, 290, 12, 185, 45, 230];
+let bubblePool = [];
+function renderBubbles(words, pool) {
+  bubblePool = pool;
+  const box = $('statWords');
+  if (!words.length || !window.d3) { box.innerHTML = '<p class="muted small center">Registra qualche nota e qui vedrai le parole che usi di più ✨</p>'; return; }
+  const W = box.clientWidth || 340;
+  const max = words[0][1];
+  const circles = words.map(([w, c], i) => ({ w, c, i, r: 18 + Math.sqrt(c / max) * W * 0.13 }));
+  d3.packSiblings(circles);
+  const enc = d3.packEnclose(circles), scale = Math.min(1, (W - 8) / (enc.r * 2));
+  const H = enc.r * 2 * scale;
+  box.style.height = H + 'px';
+  box.innerHTML = circles.map(o => {
+    const d = o.r * 2 * scale, x = (o.x - enc.x) * scale + W / 2 - d / 2, y = (o.y - enc.y) * scale + H / 2 - d / 2;
+    const h = BUBBLE_HUES[o.i % BUBBLE_HUES.length], fs = Math.min(d * .3, d * .84 / (o.w.length * .6));
+    return `<button type="button" class="bubble" data-w="${esc(o.w)}" style="--h:${h};width:${d}px;height:${d}px;left:${x}px;top:${y}px;--delay:${o.i * 35}ms">
+      <span class="bw" style="font-size:${fs}px">${esc(o.w)}</span>${d > 44 ? `<span class="bc">${o.c}×</span>` : ''}</button>`;
+  }).join('');
+}
+$('statWords').onclick = e => {
+  const b = e.target.closest('.bubble'); if (!b) return;
+  const w = b.dataset.w, root = w.length > 4 ? w.replace(/[aeiou]$/, '') : w;
+  const was = b.classList.contains('sel');
+  document.querySelectorAll('.bubble').forEach(x => x.classList.toggle('sel', x === b && !was));
+  if (was) return $('wordDetail').classList.add('hidden');
+  const re = new RegExp(`\\b${root.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}[a-zà-ÿ]?\\b`, 'i');
+  const hits = bubblePool.filter(n => re.test(`${n.title} ${n.text}`));
+  $('wordDetail').innerHTML = `<h4>«${esc(w)}» in ${hits.length} ${hits.length === 1 ? 'nota' : 'note'}</h4><ul class="notes grouped">${hits.slice(0, 8).map(n => noteItem(n, true)).join('')}</ul>`;
+  $('wordDetail').classList.remove('hidden');
+  $('wordDetail').scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+};
+$('wordDetail').onclick = e => openFromList(e);
 
 // ---------- Prossimi eventi ----------
 const dayShort = d => d.toLocaleDateString('it-IT', { weekday: 'short' }).replace('.', '');

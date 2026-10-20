@@ -353,3 +353,18 @@ label.addbtn{display:grid;place-items:center;cursor:pointer}
 .help{font-size:.84rem;color:var(--text)}
 .help summary{color:var(--accent);font-weight:600;cursor:pointer;padding:4px 0}
 .help p{margin:8px 0;line-height:1.45}
+/* Bolle delle parole */
+.bubbles{position:relative;width:100%;min-height:120px;margin-top:4px}
+.bubble{position:absolute;border-radius:50%;display:grid;place-content:center;justify-items:center;gap:0;padding:4px;color:#fff;text-align:center;overflow:hidden;
+  background:radial-gradient(circle at 30% 25%,hsl(var(--h) 100% 82%),hsl(var(--h) 85% 62%) 45%,hsl(calc(var(--h) + 25) 80% 48%));
+  box-shadow:inset 0 2px 3px rgba(255,255,255,.55),inset 0 -8px 16px hsl(var(--h) 80% 30% / .35),0 8px 22px hsl(var(--h) 80% 45% / .35);
+  animation:pop .55s cubic-bezier(.2,1.4,.4,1) both;animation-delay:var(--delay);transition:transform .25s cubic-bezier(.3,1.6,.5,1),filter .25s}
+.bubble::after{content:"";position:absolute;top:10%;left:18%;width:38%;height:24%;border-radius:50%;background:linear-gradient(rgba(255,255,255,.55),rgba(255,255,255,0));transform:rotate(-20deg);pointer-events:none}
+.bubble .bw{font-weight:750;letter-spacing:-.02em;line-height:1.05;white-space:nowrap;text-shadow:0 1px 2px hsl(var(--h) 80% 25% / .45)}
+.bubble .bc{font-size:.68rem;font-weight:700;opacity:.85}
+.bubble:active{transform:scale(.92)}
+.bubble.sel{transform:scale(1.08);z-index:2;box-shadow:0 0 0 4px var(--bg),0 0 0 6px hsl(var(--h) 85% 58%),0 12px 30px hsl(var(--h) 80% 45% / .45)}
+.bubbles:has(.sel) .bubble:not(.sel){filter:saturate(.35) opacity(.55)}
+@keyframes pop{from{transform:scale(0);opacity:0}}
+.worddetail{margin-top:14px;animation:fade .3s ease}
+.worddetail h4{margin:0 4px 8px;font-size:.95rem}

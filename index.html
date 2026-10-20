@@ -85,7 +85,8 @@
     <div class="card statcard"><h3>Per raccolta</h3><div id="statCats" class="hbars"></div></div>
     <div class="card statcard">
       <div class="statrow"><h3>Parole più usate</h3><select id="wordsCat" class="catselect"></select></div>
-      <div id="statWords" class="cloud"></div>
+      <div id="statWords" class="bubbles"></div>
+      <div id="wordDetail" class="worddetail hidden"></div>
     </div>
   </section>
 
@@ -281,6 +282,7 @@
 <script src="insights.js"></script>
 <script src="cloud.js"></script>
 <script src="vendor/sortable.min.js"></script>
+<script src="vendor/d3-hierarchy.min.js"></script>
 <script src="app.js"></script>
 </body>
 </html>
