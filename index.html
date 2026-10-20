@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
-<meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' https://cdn.jsdelivr.net 'wasm-unsafe-eval'; worker-src 'self' blob: https://cdn.jsdelivr.net; connect-src 'self' https://cdn.jsdelivr.net https://huggingface.co https://*.huggingface.co https://*.hf.co https://*.supabase.co wss://*.supabase.co https://api.open-meteo.com; img-src 'self' data: blob:; media-src 'self' blob:; style-src 'self' 'unsafe-inline'">
+<meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' https://cdn.jsdelivr.net 'wasm-unsafe-eval'; worker-src 'self' blob: https://cdn.jsdelivr.net; connect-src 'self' https://cdn.jsdelivr.net https://tessdata.projectnaptha.com https://huggingface.co https://*.huggingface.co https://*.hf.co https://*.supabase.co wss://*.supabase.co https://api.open-meteo.com; img-src 'self' data: blob:; media-src 'self' blob:; style-src 'self' 'unsafe-inline'">
 <meta name="theme-color" content="#c9d6ff">
 <meta name="apple-mobile-web-app-capable" content="yes">
 <title>Note Vocali</title>
@@ -127,11 +127,14 @@
 
 <dialog id="viewer" class="viewer">
   <img id="viewerImg" alt="Foto della nota">
+  <p id="viewerText" class="viewertext hidden"></p>
   <div class="viewerbar">
     <button type="button" id="viewerDel" class="pill danger">🗑️ Elimina</button>
     <button type="button" id="viewerClose" class="pill">Chiudi</button>
   </div>
 </dialog>
+
+<div id="printView" aria-hidden="true"></div>
 
 <div id="toast" class="toast hidden" role="status">Nota eliminata <button type="button" id="btnUndo">Annulla</button></div>
 
@@ -249,6 +252,7 @@
     <label>Raccolte (una per riga)
       <textarea id="catsInput" rows="6"></textarea>
     </label>
+    <button type="button" id="btnExportPdf" class="pill">📄 Esporta tutte le note in PDF</button>
     <button type="button" id="btnFaceIdSetup">🙂 Attiva Face ID</button>
     <button type="button" id="btnPin">🔒 Cambia PIN</button>
     <button type="button" id="btnLogout" class="danger hidden">Esci dall'account</button>

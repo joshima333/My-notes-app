@@ -339,7 +339,7 @@ async function render() {
   if (filter === 'week' && !q) return renderAgenda(all);
   if (listMode) {
     const today = startOfToday();
-    let list = q ? sorted.filter(n => (n.title + ' ' + n.text).toLowerCase().includes(q)) : all;
+    let list = q ? sorted.filter(n => (n.title + ' ' + n.text + ' ' + (n.photos || []).map(p => p.text || '').join(' ')).toLowerCase().includes(q)) : all;
     if (filter === 'today') { const tom = new Date(today); tom.setDate(today.getDate() + 1); list = list.filter(n => { const e = noteEvent(n); return (e && Smart.occurrences(e, today, tom).length) || sameDay(new Date(n.created), today); }); }
     if (filter === 'pinned') list = list.filter(n => n.pinned);
     if (filter === 'audio') list = list.filter(n => n.audio || n.hasAudio);
@@ -889,12 +889,32 @@ $('photoInput').onchange = async e => {
   if (!current.title.trim()) { current.title = 'Foto'; $('noteTitle').value = 'Foto'; }
   delete current.draft;
   renderPhotos(); await saveNote(current);
+  readPhotoText(current, current.photos.at(-1));
 };
+// Legge il testo nella foto (scontrino, ricetta…) sul telefono, per poterlo cercare
+let ocrWorker = null;
+async function readPhotoText(n, p) {
+  try {
+    showToast('🔍 Leggo il testo della foto…');
+    if (!window.Tesseract) await new Promise((res, rej) => { const sc = document.createElement('script'); sc.src = 'https://cdn.jsdelivr.net/npm/tesseract.js@6.0.1/dist/tesseract.min.js'; sc.onload = res; sc.onerror = rej; document.head.appendChild(sc); });
+    ocrWorker = ocrWorker || await Tesseract.createWorker('ita');
+    const { data } = await ocrWorker.recognize(p.blob);
+    const text = (data.text || '').replace(/\s+/g, ' ').trim();
+    const cur = await DB.get(n.id); if (!cur) return;
+    const ph = cur.photos?.find(x => x.id === p.id); if (!ph) return;
+    ph.text = text;
+    if (current?.id === n.id) { const cp = current.photos?.find(x => x.id === p.id); if (cp) cp.text = text; }
+    await saveNote(cur, true);
+    showToast(text ? '✓ Testo della foto letto: ora puoi cercarlo' : 'Nessun testo trovato nella foto');
+  } catch (e) { console.warn('OCR', e); }
+}
 let viewing = null;
 $('photos').onclick = e => {
   const b = e.target.closest('.ph'); if (!b) return;
   viewing = (current.photos || []).find(p => p.id === b.dataset.p); if (!viewing?.blob) return;
   $('viewerImg').src = URL.createObjectURL(viewing.blob);
+  $('viewerText').textContent = viewing.text || '';
+  $('viewerText').classList.toggle('hidden', !viewing.text);
   openSheet($('viewer'));
 };
 $('viewerClose').onclick = () => $('viewer').close();
@@ -1106,6 +1126,24 @@ function openSettings() {
   openSheet($('settingsDlg'));
 }
 $('btnSettings').onclick = openSettings;
+// Esporta tutto come PDF (usa "Stampa" → "Salva come PDF" / Condividi del telefono)
+$('btnExportPdf').onclick = async () => {
+  const all = (await DB.all()).sort((a, b) => a.created - b.created);
+  const cats = [...new Set([...settings.cats, ...all.map(n => n.category)])].filter(c => all.some(n => n.category === c));
+  const urls = [];
+  const d = new Date().toLocaleDateString('it-IT', { day: 'numeric', month: 'long', year: 'numeric' });
+  $('printView').innerHTML = `<h1>Note Vocali${localStorage.name ? ' di ' + esc(localStorage.name) : ''}</h1><p class="pmeta">Esportate il ${d} · ${all.length} note</p>` +
+    cats.map(c => `<section><h2>${emoji(c)} ${esc(c)}</h2>${all.filter(n => n.category === c).map(n => {
+      const ev = noteEvent(n), its = liveItems(n);
+      const photos = (n.photos || []).filter(p => p.blob).map(p => { const u = URL.createObjectURL(p.blob); urls.push(u); return `<img src="${u}">`; }).join('');
+      return `<article><h3>${esc(n.title || 'Nota')}${n.archived ? ' <small>(archiviata)</small>' : ''}</h3>
+        <p class="pmeta">${fmtDate(n.created)}${ev ? ' · 📅 ' + esc(Smart.fmtEvent(ev)) : ''}</p>
+        ${its.length ? `<ul>${its.map(i => `<li>${i.done ? '☑' : '☐'} ${esc(i.t)}</li>`).join('')}</ul>` : ''}
+        ${n.text ? `<p>${esc(n.text)}</p>` : ''}${photos ? `<div class="pphotos">${photos}</div>` : ''}</article>`;
+    }).join('')}</section>`).join('');
+  $('settingsDlg').close();
+  setTimeout(() => { window.print(); setTimeout(() => urls.forEach(URL.revokeObjectURL), 4000); }, 300);
+};
 // Aspetto e dimensione testo
 function paintSegs() {
   for (const [id, key] of [['themeSeg', 'theme'], ['sizeSeg', 'fontSize']])

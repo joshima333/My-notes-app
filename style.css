@@ -311,7 +311,7 @@ audio{width:100%}
 .ph.loading{display:grid;place-items:center;font-size:1.3rem}
 label.addbtn{display:grid;place-items:center;cursor:pointer}
 .viewer{background:rgba(0,0,0,.92);width:100%;max-width:100%;height:100%;max-height:100%;margin:0;border-radius:0;display:none;padding:calc(10px + env(safe-area-inset-top)) 10px calc(16px + env(safe-area-inset-bottom))}
-.viewer[open]{display:grid;grid-template-rows:1fr auto;gap:12px;animation:fade .2s ease}
+.viewer[open]{display:grid;grid-template-rows:1fr auto auto;gap:12px;animation:fade .2s ease}
 .viewer img{width:100%;height:100%;object-fit:contain;min-height:0}
 .viewerbar{display:flex;justify-content:space-between}
 .viewerbar .pill{background:rgba(255,255,255,.14);color:#fff}
@@ -368,3 +368,20 @@ label.addbtn{display:grid;place-items:center;cursor:pointer}
 @keyframes pop{from{transform:scale(0);opacity:0}}
 .worddetail{margin-top:14px;animation:fade .3s ease}
 .worddetail h4{margin:0 4px 8px;font-size:.95rem}
+.viewertext{margin:0;max-height:22vh;overflow:auto;color:#ddd;font-size:.85rem;line-height:1.4;background:rgba(255,255,255,.08);border-radius:12px;padding:10px 12px;user-select:text}
+/* Esportazione PDF */
+#printView{display:none}
+@media print{
+  body{background:#fff!important;color:#000;padding:0}
+  body > *:not(#printView){display:none!important}
+  #printView{display:block;font:12pt/1.45 var(--font);color:#000}
+  #printView h1{font-size:22pt;margin:0 0 4pt}
+  #printView h2{font-size:15pt;margin:18pt 0 6pt;border-bottom:1px solid #ccc;padding-bottom:4pt;break-after:avoid}
+  #printView h3{font-size:12.5pt;margin:0 0 2pt}
+  #printView article{break-inside:avoid;margin:0 0 12pt}
+  #printView .pmeta{color:#666;font-size:9.5pt;margin:0 0 4pt}
+  #printView ul{margin:4pt 0;padding-left:14pt;list-style:none}
+  #printView p{margin:4pt 0;white-space:pre-wrap}
+  #printView .pphotos{display:flex;flex-wrap:wrap;gap:6pt}
+  #printView img{max-width:45%;max-height:180pt;border-radius:6pt}
+}
