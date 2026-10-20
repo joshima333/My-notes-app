@@ -282,6 +282,7 @@ async function render() {
   renderUpcoming(all);
   if (currentView === 'viewCal') renderCalendar(every);
   if (currentView === 'viewArch') renderArchive(sorted.filter(n => n.archived));
+  if (currentView === 'viewStats') renderStats(every);
   const q = $('search').value.trim().toLowerCase();
   $('home').classList.toggle('hidden', !!openFolder);
   $('folderView').classList.toggle('hidden', !openFolder);
@@ -291,12 +292,23 @@ async function render() {
     $('notes').innerHTML = list.length ? list.map(n => noteItem(n)).join('') : '<li class="empty">Nessuna nota qui.<br>Tocca 🎙️ per registrarne una.</li>';
     return;
   }
-  $('results').classList.toggle('hidden', !q);
-  $('folders').classList.toggle('hidden', !!q);
-  $('upcoming').classList.toggle('hidden', !!q || !$('upcoming').innerHTML);
-  if (q) {
-    const list = sorted.filter(n => (n.title + ' ' + n.text).toLowerCase().includes(q));
-    $('results').innerHTML = list.length ? list.map(n => noteItem(n, true)).join('') : '<li class="empty">Nessun risultato.</li>';
+  const listMode = !!q || !!filter;
+  $('results').classList.toggle('hidden', !listMode || filter === 'week');
+  $('agenda').classList.toggle('hidden', filter !== 'week' || !!q);
+  for (const id of ['folders', 'spark']) $(id).classList.toggle('hidden', listMode);
+  document.querySelector('#home .sectionhead').classList.toggle('hidden', listMode);
+  $('upcoming').classList.toggle('hidden', listMode || !$('upcoming').innerHTML);
+  if (!listMode) renderSpark(all);
+  if (filter === 'week' && !q) return renderAgenda(all);
+  if (listMode) {
+    const today = startOfToday();
+    let list = q ? sorted.filter(n => (n.title + ' ' + n.text).toLowerCase().includes(q)) : all;
+    if (filter === 'today') list = list.filter(n => { const e = noteEvent(n); return (e && sameDay(e.start, today)) || sameDay(new Date(n.created), today); });
+    if (filter === 'pinned') list = list.filter(n => n.pinned);
+    if (filter === 'audio') list = list.filter(n => n.audio || n.hasAudio);
+    if (filter === 'photo') list = list.filter(n => n.photos?.length);
+    if (filter === 'lists') list = list.filter(n => n.items?.length);
+    $('results').innerHTML = list.length ? list.map(n => noteItem(n, true)).join('') : '<li class="empty">Niente qui per ora.</li>';
     return;
   }
   const cats = [...settings.cats, ...new Set(all.map(n => n.category).filter(c => !settings.cats.includes(c)))];
@@ -310,6 +322,73 @@ async function render() {
     </button>`;
   }).join('');
 }
+
+// ---------- Filtri rapidi + agenda della settimana ----------
+let filter = '';
+$('filters').onclick = e => {
+  const b = e.target.closest('.fchip'); if (!b) return;
+  filter = b.dataset.f;
+  document.querySelectorAll('.fchip').forEach(x => x.classList.toggle('on', x === b));
+  b.scrollIntoView({ inline: 'center', block: 'nearest', behavior: 'smooth' });
+  render();
+};
+function renderAgenda(all) {
+  const today = startOfToday();
+  const evs = all.map(n => [n, noteEvent(n)]).filter(([, e]) => e);
+  let html = '';
+  for (let i = 0; i < 7; i++) {
+    const d = new Date(today); d.setDate(today.getDate() + i);
+    const day = evs.filter(([, e]) => sameDay(e.start, d)).sort((a, b) => a[1].start - b[1].start);
+    const label = i === 0 ? 'Oggi' : i === 1 ? 'Domani' : d.toLocaleDateString('it-IT', { weekday: 'long', day: 'numeric', month: 'short' });
+    html += `<h3 class="daytitle agday${day.length ? '' : ' emptyday'}">${label[0].toUpperCase() + label.slice(1)}</h3>` +
+      (day.length ? `<div class="upcoming">${day.map(([n, e]) => eventRow(n, e)).join('')}</div>` : '');
+  }
+  $('agenda').innerHTML = html + '<p class="muted small hint">Gli eventi nascono dalle tue note: di\' per esempio “giovedì alle 18 palestra”.</p>';
+}
+$('agenda').onclick = async e => { const r = e.target.closest('.uprow'); if (r) openNote(await DB.get(r.dataset.id)); };
+
+// ---------- Spunto del giorno ----------
+let sparkShift = 0;
+function renderSpark(all) {
+  const s = Insights.spark(all, new Date(), sparkShift);
+  const icon = { prompt: '✨', idea: '💡', word: '🔤', recap: '🗓️' }[s.kind];
+  $('spark').innerHTML = `<div class="sparkhead"><span>${icon} Spunto del giorno</span><button type="button" class="link small" id="sparkNext">Un altro</button></div>
+    <p class="sparktext">${esc(s.text)}</p>${s.id ? `<button type="button" class="link small" data-open="${s.id}">Apri la nota ›</button>` : ''}`;
+}
+$('spark').onclick = async e => {
+  if (e.target.id === 'sparkNext') { sparkShift++; return render(); }
+  const o = e.target.closest('[data-open]'); if (o) openNote(await DB.get(o.dataset.open));
+};
+
+// ---------- Statistiche ----------
+function renderStats(every) {
+  const now = Date.now(), active = every.filter(n => !n.archived);
+  const month = every.filter(n => now - n.created < 30 * 864e5);
+  const secs = every.reduce((a, n) => a + (n.duration || 0), 0);
+  const items = every.flatMap(n => n.items || []);
+  const evs = every.filter(n => noteEvent(n));
+  const tile = (v, l) => `<div class="tile"><b>${v}</b><span>${l}</span></div>`;
+  $('statTiles').innerHTML = tile(every.length, 'note totali') + tile(month.length, 'ultimi 30 giorni') +
+    tile(secs >= 3600 ? (secs / 3600).toFixed(1) + ' h' : Math.round(secs / 60) + ' min', 'registrati') +
+    tile(items.length ? Math.round(items.filter(i => i.done).length / items.length * 100) + '%' : '–', 'voci spuntate') +
+    tile(evs.length, 'eventi') + tile(every.filter(n => n.archived).length, 'archiviate');
+  // attività 30 giorni
+  const today = startOfToday(), days = [];
+  for (let i = 29; i >= 0; i--) { const d = new Date(today); d.setDate(today.getDate() - i); days.push([d, every.filter(n => sameDay(new Date(n.created), d)).length]); }
+  const max = Math.max(1, ...days.map(x => x[1]));
+  $('statDays').innerHTML = days.map(([d, c]) => `<i style="height:${Math.max(4, c / max * 100)}%" class="${c ? '' : 'zero'}" title="${d.toLocaleDateString('it-IT')}: ${c}"></i>`).join('');
+  // per raccolta
+  const cats = [...new Set([...settings.cats, ...active.map(n => n.category)])].map(c => [c, active.filter(n => n.category === c).length]).sort((a, b) => b[1] - a[1]);
+  const cmax = Math.max(1, ...cats.map(x => x[1]));
+  $('statCats').innerHTML = cats.map(([c, k]) => `<div class="hbar" style="--h:${hue(c)}"><span>${emoji(c)} ${esc(c)}</span><div><i style="width:${k / cmax * 100}%"></i></div><b>${k}</b></div>`).join('');
+  // parole
+  const sel = $('wordsCat'), cur = sel.value;
+  sel.innerHTML = '<option value="">Tutte le note</option>' + settings.cats.map(c => `<option${c === cur ? ' selected' : ''}>${esc(c)}</option>`).join('');
+  const words = Insights.topWords(cur ? every.filter(n => n.category === cur) : every, 30);
+  const wmax = words[0]?.[1] || 1;
+  $('statWords').innerHTML = words.length ? words.map(([w, c]) => `<span style="font-size:${0.85 + c / wmax * 1.1}rem;opacity:${0.55 + c / wmax * 0.45}" title="${c} volte">${esc(w)}</span>`).join('') : '<span class="muted small">Ancora poche parole: registra qualche nota!</span>';
+}
+$('wordsCat').onchange = () => render();
 
 // ---------- Prossimi eventi ----------
 const dayShort = d => d.toLocaleDateString('it-IT', { weekday: 'short' }).replace('.', '');
@@ -369,10 +448,10 @@ async function setArchived(n, on) {
 let currentView = 'viewNotes';
 document.querySelector('.tabs').onclick = e => {
   const t = e.target.closest('.tab'); if (!t) return;
-  if (t.dataset.view === currentView && currentView === 'viewNotes') { openFolder = null; $('search').value = ''; }
+  if (t.dataset.view === currentView && currentView === 'viewNotes') { openFolder = null; $('search').value = ''; filter = ''; document.querySelectorAll('.fchip').forEach(x => x.classList.toggle('on', !x.dataset.f)); }
   currentView = t.dataset.view;
   document.querySelectorAll('.tab').forEach(x => x.classList.toggle('on', x === t));
-  for (const v of ['viewNotes', 'viewCal', 'viewArch']) $(v).classList.toggle('hidden', v !== currentView);
+  for (const v of ['viewNotes', 'viewCal', 'viewStats', 'viewArch']) $(v).classList.toggle('hidden', v !== currentView);
   closeSwipe(); render(); scrollTo({ top: 0 });
 };
 

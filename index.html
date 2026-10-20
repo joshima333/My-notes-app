@@ -33,7 +33,18 @@
   <section id="viewNotes" class="view">
     <div id="home">
       <div class="searchwrap"><input id="search" type="search" placeholder="Cerca"></div>
+      <div id="filters" class="filters" role="tablist">
+        <button class="fchip on" data-f="">Tutte</button>
+        <button class="fchip" data-f="today">Oggi</button>
+        <button class="fchip" data-f="week">Settimana</button>
+        <button class="fchip" data-f="pinned">📌 Fissate</button>
+        <button class="fchip" data-f="audio">🔊 Con audio</button>
+        <button class="fchip" data-f="photo">📷 Con foto</button>
+        <button class="fchip" data-f="lists">✅ Liste</button>
+      </div>
+      <div id="spark" class="spark hidden"></div>
       <div id="upcoming" class="upcoming hidden"></div>
+      <div id="agenda" class="hidden"></div>
       <div class="sectionhead"><h2>Raccolte</h2><span id="syncIcon" class="syncpill hidden"></span></div>
       <div id="folders" class="folders"></div>
       <ul id="results" class="notes grouped hidden"></ul>
@@ -63,6 +74,18 @@
     <ul id="calList" class="notes grouped"></ul>
   </section>
 
+  <!-- STATISTICHE -->
+  <section id="viewStats" class="view hidden">
+    <h2 class="foldertitle">📊 Statistiche</h2>
+    <div id="statTiles" class="tiles"></div>
+    <div class="card statcard"><h3>Ultimi 30 giorni</h3><div id="statDays" class="bars"></div></div>
+    <div class="card statcard"><h3>Per raccolta</h3><div id="statCats" class="hbars"></div></div>
+    <div class="card statcard">
+      <div class="statrow"><h3>Parole più usate</h3><select id="wordsCat" class="catselect"></select></div>
+      <div id="statWords" class="cloud"></div>
+    </div>
+  </section>
+
   <!-- ARCHIVIO -->
   <section id="viewArch" class="view hidden">
     <h2 class="foldertitle">🗄️ Archivio</h2>
@@ -76,6 +99,7 @@
   <div class="tabs">
     <button class="tab on" data-view="viewNotes" role="tab"><span class="ti"><svg viewBox="0 0 24 24" width="24" height="24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="4" y="3" width="16" height="18" rx="3"/><path d="M8 8h8M8 12h8M8 16h5"/></svg></span><span>Note</span></button>
     <button class="tab" data-view="viewCal" role="tab"><span class="ti"><svg viewBox="0 0 24 24" width="24" height="24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="5" width="18" height="16" rx="3"/><path d="M3 10h18M8 3v4M16 3v4"/><circle cx="12" cy="15" r="1.3" fill="currentColor"/></svg></span><span>Calendario</span></button>
+    <button class="tab" data-view="viewStats" role="tab"><span class="ti"><svg viewBox="0 0 24 24" width="24" height="24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 20V10M10 20V4M16 20v-7M22 20H2"/></svg></span><span>Statistiche</span></button>
     <button class="tab" data-view="viewArch" role="tab"><span class="ti"><svg viewBox="0 0 24 24" width="24" height="24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="4" width="18" height="5" rx="1.5"/><path d="M5 9v9a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V9M10 13h4"/></svg></span><span>Archivio</span></button>
   </div>
   <button id="btnRec" class="fab" aria-label="Registra"><span class="mic"><svg viewBox="0 0 24 24" width="28" height="28" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="9" y="3" width="6" height="11" rx="3" fill="currentColor"/><path d="M5.5 11a6.5 6.5 0 0 0 13 0M12 17.5V21"/></svg></span></button>
@@ -220,6 +244,7 @@
 <script src="vendor/supabase.js"></script>
 <script src="db.js"></script>
 <script src="smart.js"></script>
+<script src="insights.js"></script>
 <script src="cloud.js"></script>
 <script src="vendor/sortable.min.js"></script>
 <script src="app.js"></script>

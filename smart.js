@@ -17,7 +17,7 @@ const Smart = (() => {
     let m;
     if ((m = t.match(/\bdopodomani\b/))) { date = add(2); used.push(m[0]); }
     else if ((m = t.match(/\bdomani\b/))) { date = add(1); used.push(m[0]); }
-    else if ((m = t.match(/\boggi\b|\bstasera\b|\bstamattina\b/))) { date = add(0); used.push(m[0]); }
+    else if ((m = t.match(/\boggi\b|\bstasera\b|\bstamattina\b/))) { date = add(0); used.push(m[0]); var onlyToday = true; }
     if (!date && (m = t.match(new RegExp(`\\b(?:il |l'|lo )?${W}\\s+(${MONTHS.join('|')})(?:\\s+(\\d{4}))?`)))) {
       const d = n(m[1]), mo = MONTHS.indexOf(m[2]);
       let y = m[3] ? +m[3] : today.getFullYear();
@@ -52,6 +52,7 @@ const Smart = (() => {
       used.push(m[0]);
     } else if ((m = t.match(/\b(mezzogiorno|mezzanotte)\b/))) { hh = n(m[1]); used.push(m[0]); }
     if (hh != null && (hh > 23 || mm > 59)) hh = null;
+    if (onlyToday && hh == null) return null; // "oggi ho fatto…" è un diario, non un evento
 
     const start = new Date(date);
     if (hh != null) start.setHours(hh, mm);
