@@ -107,7 +107,8 @@ async function start() {
       liveEl().innerHTML = esc(finalText) + `<span class="interim">${esc(interim)}</span>`;
     };
     // iPhone a volte non "chiude" l'ultima frase: la salviamo comunque
-    rec.onend = () => { flushInterim(); if (recording) try { rec.start() } catch {} };
+    // (ogni riavvio della dettatura su iPhone fa il suono del microfono: riavviamo solo se serve davvero)
+    rec.onend = () => { flushInterim(); if (recording && !paused) setTimeout(() => { if (recording && !paused) try { rec.start() } catch {} }, 250); };
     rec.onerror = e => {
       // Se microfono conteso tra registrazione audio e dettatura, priorità al testo
       if (e.error === 'audio-capture' && media) { media.stream.getTracks().forEach(t => t.stop()); media = null; chunks = []; }
@@ -117,19 +118,49 @@ async function start() {
   } else {
     liveEl().innerHTML = '<span class="interim">Sto registrando… il testo apparirà dopo lo stop.</span>';
   }
-  recording = true;
+  recording = true; paused = false; elapsed = 0;
   t0 = Date.now();
-  tick = setInterval(() => {
-    const s = Math.floor((Date.now() - t0) / 1000);
-    $('timer').textContent = `${String(s / 60 | 0).padStart(2, '0')}:${String(s % 60).padStart(2, '0')}`;
-  }, 500);
+  startTick();
+  paintPause();
   recBtn().classList.add('on');
   liveEl().classList.remove('hidden');
   if (!appendMode) { $('recSheet').classList.remove('hidden'); fillCats(); }
 }
 
+// ---------- Pausa ----------
+let paused = false, elapsed = 0;
+const recMs = () => elapsed + (paused ? 0 : Date.now() - t0);
+function startTick() {
+  clearInterval(tick);
+  tick = setInterval(() => {
+    const s = Math.floor(recMs() / 1000);
+    $('timer').textContent = `${String(s / 60 | 0).padStart(2, '0')}:${String(s % 60).padStart(2, '0')}`;
+  }, 250);
+}
+function paintPause() {
+  $('btnPause').innerHTML = paused ? '<span>▶</span><small>Riprendi</small>' : '<span>❚❚</span><small>Pausa</small>';
+  $('recSheet').classList.toggle('paused', paused);
+  if (paused && !liveEl().textContent.trim()) liveEl().innerHTML = '<span class="interim">In pausa</span>';
+}
+function pauseRec() {
+  if (!recording || paused) return;
+  elapsed += Date.now() - t0; paused = true;
+  if (rec) try { rec.stop(); } catch {}
+  if (media?.state === 'recording') media.pause();
+  paintPause();
+}
+function resumeRec() {
+  if (!recording || !paused) return;
+  paused = false; t0 = Date.now();
+  if (media?.state === 'paused') media.resume();
+  if (rec) try { rec.start(); } catch {}
+  paintPause();
+}
+$('btnPause').onclick = () => paused ? resumeRec() : pauseRec();
+
 async function stop() {
-  recording = false;
+  const dur = Math.round(recMs() / 1000);
+  recording = false; paused = false;
   clearInterval(tick);
   recBtn().classList.remove('on');
   $('recSheet').classList.add('hidden');
@@ -155,7 +186,7 @@ async function stop() {
     id: crypto.randomUUID(), created: Date.now(),
     category: selCat(),
     title: text ? makeTitle(text) : 'Nota vocale',
-    text, audio, pending, items, duration: Math.round((Date.now() - t0) / 1000),
+    text, audio, pending, items, duration: dur,
   };
   await saveNote(note);
   if (pending) transcribe(note); else openNote(note);
@@ -614,7 +645,8 @@ $('moveList').onclick = async e => {
 // ---------- Nota scritta ----------
 document.addEventListener('click', e => { if (e.target.closest('[data-write]')) $('btnWrite').onclick(); });
 $('btnWrite').onclick = async () => {
-  if (recording && !appendMode) { discardRec = true; await stop(); }
+  // durante una registrazione: non buttare via nulla, salva e passa alla scrittura
+  if (recording && !appendMode) { await stop(); setTimeout(() => $('noteDlg').open && $('noteText').focus(), 250); return; }
   openNote({ id: crypto.randomUUID(), created: Date.now(), category: selCat(), title: '', text: '', audio: null, draft: true });
   setTimeout(() => $('noteText').focus(), 150);
 };
