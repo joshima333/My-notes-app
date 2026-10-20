@@ -18,6 +18,15 @@ const Smart = (() => {
     if ((m = t.match(/\bdopodomani\b/))) { date = add(2); used.push(m[0]); }
     else if ((m = t.match(/\bdomani\b/))) { date = add(1); used.push(m[0]); }
     else if ((m = t.match(/\boggi\b|\bstasera\b|\bstamattina\b/))) { date = add(0); used.push(m[0]); var onlyToday = true; }
+    // ricorrenze: "ogni lunedì", "tutti i giovedì", "ogni giorno", "ogni mese"
+    let repeat = null;
+    if ((m = t.match(new RegExp(`\\b(?:ogni|tutti i|tutte le)\\s+((?:(?:${DAYS.join('|')})(?:\\s*(?:,|e)\\s*)?)+)`)))) {
+      const days = [...m[1].matchAll(new RegExp(DAYS.join('|'), 'g'))].map(x => DAYS.indexOf(x[0]));
+      repeat = { freq: 'WEEKLY', days }; used.push(m[0]);
+      if (!date) { let k = 0; while (!days.includes((today.getDay() + k) % 7)) k++; date = add(k); }
+    } else if ((m = t.match(/\b(?:ogni giorno|tutti i giorni)\b/))) { repeat = { freq: 'DAILY' }; used.push(m[0]); date = date || add(0); }
+    else if ((m = t.match(/\b(?:ogni mese|tutti i mesi)\b/))) { repeat = { freq: 'MONTHLY' }; used.push(m[0]); }
+    else if ((m = t.match(/\b(?:ogni anno|tutti gli anni)\b/))) { repeat = { freq: 'YEARLY' }; used.push(m[0]); }
     if (!date && (m = t.match(new RegExp(`\\b(?:il |l'|lo )?${W}\\s+(${MONTHS.join('|')})(?:\\s+(\\d{4}))?`)))) {
       const d = n(m[1]), mo = MONTHS.indexOf(m[2]);
       let y = m[3] ? +m[3] : today.getFullYear();
@@ -52,7 +61,7 @@ const Smart = (() => {
       used.push(m[0]);
     } else if ((m = t.match(/\b(mezzogiorno|mezzanotte)\b/))) { hh = n(m[1]); used.push(m[0]); }
     if (hh != null && (hh > 23 || mm > 59)) hh = null;
-    if (onlyToday && hh == null) return null; // "oggi ho fatto…" è un diario, non un evento
+    if (onlyToday && hh == null && !repeat) return null; // "oggi ho fatto…" è un diario, non un evento
 
     const start = new Date(date);
     if (hh != null) start.setHours(hh, mm);
@@ -62,7 +71,66 @@ const Smart = (() => {
     title = title.replace(/\b(ho|c'è|abbiamo|avrò)\b\s*(un[ao']?\s*)?/i, '').replace(/\s+/g, ' ').replace(/^[\s,.:;-]+|[\s,.:;-]+$/g, '');
     title = title.replace(/^(la|il|lo|una|un|l')\s+/i, ''); title = title ? title[0].toUpperCase() + title.slice(1) : 'Evento';
     if (title.length > 80) title = title.slice(0, 77) + '…';
-    return { title, start, allDay: hh == null };
+    return { title, start, allDay: hh == null, repeat };
+  }
+
+  // Tutte le date di un evento (anche ricorrente) tra "from" e "to"
+  function occurrences(ev, from, to) {
+    const out = [], r = ev.repeat, s = ev.start;
+    if (!r) return s >= from && s < to ? [s] : [];
+    const until = r.until ? new Date(r.until) : null, step = r.interval || 1;
+    let count = 0;
+    const at = d => { const x = new Date(d); x.setHours(s.getHours(), s.getMinutes(), 0, 0); return x; };
+    for (let d = new Date(s.getFullYear(), s.getMonth(), s.getDate()); d < to; d.setDate(d.getDate() + 1)) {
+      if (until && d > until) break;
+      const diffDays = Math.round((d - new Date(s.getFullYear(), s.getMonth(), s.getDate())) / 864e5);
+      let hit = false;
+      if (r.freq === 'DAILY') hit = diffDays % step === 0;
+      else if (r.freq === 'WEEKLY') hit = (r.days?.length ? r.days : [s.getDay()]).includes(d.getDay()) && Math.floor(diffDays / 7) % step === 0;
+      else if (r.freq === 'MONTHLY') hit = d.getDate() === s.getDate() && ((d.getFullYear() - s.getFullYear()) * 12 + d.getMonth() - s.getMonth()) % step === 0;
+      else if (r.freq === 'YEARLY') hit = d.getDate() === s.getDate() && d.getMonth() === s.getMonth();
+      if (!hit) continue;
+      count++;
+      if (r.count && count > r.count) break;
+      if (d >= new Date(from.getFullYear(), from.getMonth(), from.getDate())) out.push(at(d));
+      if (out.length > 400) break;
+    }
+    return out;
+  }
+  const RR_DAYS = ['SU', 'MO', 'TU', 'WE', 'TH', 'FR', 'SA'];
+  const rrule = r => r ? `RRULE:FREQ=${r.freq}${r.days?.length ? ';BYDAY=' + r.days.map(d => RR_DAYS[d]).join(',') : ''}` : '';
+
+  // Lettura di file calendario (.ics) di Google, iCloud, Outlook
+  function parseICS(text) {
+    const lines = text.replace(/\r?\n[ \t]/g, '').split(/\r?\n/), evs = [];
+    let cur = null;
+    const dt = (v, params) => {
+      const m = v.match(/^(\d{4})(\d{2})(\d{2})(?:T(\d{2})(\d{2})(\d{2})(Z)?)?/); if (!m) return null;
+      if (!m[4]) return { d: new Date(+m[1], +m[2] - 1, +m[3]), allDay: true };
+      const d = m[7] ? new Date(Date.UTC(+m[1], +m[2] - 1, +m[3], +m[4], +m[5])) : new Date(+m[1], +m[2] - 1, +m[3], +m[4], +m[5]);
+      return { d, allDay: false };
+    };
+    const unesc = v => v.replace(/\\n/gi, ' ').replace(/\\([,;\\])/g, '$1');
+    for (const line of lines) {
+      if (line === 'BEGIN:VEVENT') { cur = {}; continue; }
+      if (line === 'END:VEVENT') { if (cur?.start && cur.status !== 'CANCELLED') evs.push(cur); cur = null; continue; }
+      if (!cur) continue;
+      const i = line.indexOf(':'); if (i < 0) continue;
+      const [name, ...params] = line.slice(0, i).split(';'), val = line.slice(i + 1);
+      if (name === 'SUMMARY') cur.title = unesc(val);
+      else if (name === 'DTSTART') { const x = dt(val, params); if (x) { cur.start = x.d; cur.allDay = x.allDay || params.includes('VALUE=DATE'); } }
+      else if (name === 'STATUS') cur.status = val;
+      else if (name === 'LOCATION') cur.where = unesc(val);
+      else if (name === 'RRULE') {
+        const o = Object.fromEntries(val.split(';').map(kv => kv.split('=')));
+        if (['DAILY', 'WEEKLY', 'MONTHLY', 'YEARLY'].includes(o.FREQ)) cur.repeat = {
+          freq: o.FREQ, interval: +o.INTERVAL || 1, count: +o.COUNT || 0,
+          until: o.UNTIL ? dt(o.UNTIL)?.d.getTime() : 0,
+          days: o.BYDAY ? o.BYDAY.split(',').map(x => RR_DAYS.indexOf(x.slice(-2))).filter(x => x >= 0) : null,
+        };
+      }
+    }
+    return evs.map(e => ({ title: e.title || 'Evento', start: e.start, allDay: !!e.allDay, repeat: e.repeat || null, where: e.where || '' }));
   }
 
   const pad = x => String(x).padStart(2, '0');
@@ -75,7 +143,7 @@ const Smart = (() => {
     const end = endOf(ev);
     if (kind === 'google') {
       const dates = ev.allDay ? `${ymd(ev.start)}/${ymd(end)}` : `${ymdhms(ev.start)}/${ymdhms(end)}`;
-      return `https://calendar.google.com/calendar/render?action=TEMPLATE&text=${encodeURIComponent(ev.title)}&dates=${dates}&ctz=${encodeURIComponent(Intl.DateTimeFormat().resolvedOptions().timeZone)}&details=${encodeURIComponent(details)}`;
+      return `https://calendar.google.com/calendar/render?action=TEMPLATE&text=${encodeURIComponent(ev.title)}&dates=${dates}${ev.repeat ? '&recur=' + encodeURIComponent(rrule(ev.repeat)) : ''}&ctz=${encodeURIComponent(Intl.DateTimeFormat().resolvedOptions().timeZone)}&details=${encodeURIComponent(details)}`;
     }
     if (kind === 'outlook') {
       const q = ev.allDay ? `startdt=${iso(ev.start).slice(0, 10)}&enddt=${iso(end).slice(0, 10)}&allday=true` : `startdt=${iso(ev.start)}&enddt=${iso(end)}`;
@@ -87,11 +155,12 @@ const Smart = (() => {
       `UID:${crypto.randomUUID()}@notevocali`, `DTSTAMP:${ymdhms(new Date())}`,
       ev.allDay ? `DTSTART;VALUE=DATE:${ymd(ev.start)}` : `DTSTART:${ymdhms(ev.start)}`,
       ev.allDay ? `DTEND;VALUE=DATE:${ymd(end)}` : `DTEND:${ymdhms(end)}`,
-      `SUMMARY:${esc(ev.title)}`, `DESCRIPTION:${esc(details)}`,
+      `SUMMARY:${esc(ev.title)}`, `DESCRIPTION:${esc(details)}`, ...(ev.repeat ? [rrule(ev.repeat)] : []),
       'BEGIN:VALARM', 'ACTION:DISPLAY', `DESCRIPTION:${esc(ev.title)}`, ev.allDay ? 'TRIGGER:-PT15H' : 'TRIGGER:-PT30M', 'END:VALARM', 'END:VEVENT', 'END:VCALENDAR'].join('\r\n');
     return 'data:text/calendar;charset=utf-8,' + encodeURIComponent(ics);
   }
-  const fmtEvent = ev => ev.start.toLocaleDateString('it-IT', { weekday: 'long', day: 'numeric', month: 'long' }) +
+  const REP_TXT = r => r.freq === 'DAILY' ? 'ogni giorno' : r.freq === 'MONTHLY' ? 'ogni mese' : r.freq === 'YEARLY' ? 'ogni anno' : 'ogni ' + (r.days || []).map(d => DAYS[d]).join(' e ');
+  const fmtEvent = ev => (ev.repeat ? `🔁 ${REP_TXT(ev.repeat)}, dal ` : '') + ev.start.toLocaleDateString('it-IT', { weekday: 'long', day: 'numeric', month: 'long' }) +
     (ev.allDay ? ' · tutto il giorno' : ' · ' + ev.start.toLocaleTimeString('it-IT', { hour: '2-digit', minute: '2-digit' }));
 
   // Lista della spesa: "devo comprare latte, uova e due zucchine" → [latte, uova, due zucchine]
@@ -108,7 +177,7 @@ const Smart = (() => {
     const first = t.match(/^.+?[.!?](\s|$)/)?.[0] || t;
     return first.length > max ? first.slice(0, max - 1) + '…' : first;
   }
-  return { parseEvent, calendarLink, fmtEvent, parseList, isShopping, preview };
+  return { parseEvent, occurrences, parseICS, calendarLink, fmtEvent, parseList, isShopping, preview };
 })();
 
 // ---------- Meteo (Open-Meteo, gratuito; posizione arrotondata ~1 km) ----------

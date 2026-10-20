@@ -304,7 +304,7 @@ async function autoArchive(all) {
   for (const n of all) {
     if (n.archived || n.keepActive) continue;
     const ev = noteEvent(n);
-    if (ev && ev.start < today) { n.archived = true; await saveNote(n, true); }
+    if (ev && !ev.repeat && ev.start < today) { n.archived = true; await saveNote(n, true); }
   }
 }
 
@@ -340,7 +340,7 @@ async function render() {
   if (listMode) {
     const today = startOfToday();
     let list = q ? sorted.filter(n => (n.title + ' ' + n.text).toLowerCase().includes(q)) : all;
-    if (filter === 'today') list = list.filter(n => { const e = noteEvent(n); return (e && sameDay(e.start, today)) || sameDay(new Date(n.created), today); });
+    if (filter === 'today') { const tom = new Date(today); tom.setDate(today.getDate() + 1); list = list.filter(n => { const e = noteEvent(n); return (e && Smart.occurrences(e, today, tom).length) || sameDay(new Date(n.created), today); }); }
     if (filter === 'pinned') list = list.filter(n => n.pinned);
     if (filter === 'audio') list = list.filter(n => n.audio || n.hasAudio);
     if (filter === 'photo') list = list.filter(n => n.photos?.length);
@@ -370,19 +370,20 @@ $('filters').onclick = e => {
   render();
 };
 function renderAgenda(all) {
-  const today = startOfToday();
-  const evs = all.map(n => [n, noteEvent(n)]).filter(([, e]) => e);
+  const today = startOfToday(), end = new Date(today); end.setDate(today.getDate() + 7);
+  const evs = eventsBetween(all, today, end);
   let html = '';
   for (let i = 0; i < 7; i++) {
     const d = new Date(today); d.setDate(today.getDate() + i);
-    const day = evs.filter(([, e]) => sameDay(e.start, d)).sort((a, b) => a[1].start - b[1].start);
+    const day = evs.filter(o => sameDay(o.start, d));
     const label = i === 0 ? 'Oggi' : i === 1 ? 'Domani' : d.toLocaleDateString('it-IT', { weekday: 'long', day: 'numeric', month: 'short' });
-    html += `<h3 class="daytitle agday${day.length ? '' : ' emptyday'}">${label[0].toUpperCase() + label.slice(1)}</h3>` +
-      (day.length ? `<div class="upcoming">${day.map(([n, e]) => eventRow(n, e)).join('')}</div>` : '');
+    html += `<h3 class="daytitle agday${day.length ? '' : ' emptyday'}">${label[0].toUpperCase() + label.slice(1)}${day.length ? '' : ' · libero'}</h3>` +
+      (day.length ? `<div class="upcoming">${day.map(eventRow).join('')}</div>` : '');
   }
-  $('agenda').innerHTML = html + '<p class="muted small hint">Gli eventi nascono dalle tue note: di\' per esempio “giovedì alle 18 palestra”.</p>';
+  $('agenda').innerHTML = html + '<p class="muted small hint">Gli eventi nascono dalle tue note (es. “giovedì alle 18 palestra”, “ogni lunedì yoga”) e dai calendari collegati in ⚙️.</p>';
 }
-$('agenda').onclick = async e => { const r = e.target.closest('.uprow'); if (r) openNote(await DB.get(r.dataset.id)); };
+$('agenda').onclick = onEventTap;
+$('calExt').onclick = onEventTap;
 
 // ---------- Spunto del giorno ----------
 let sparkShift = 0;
@@ -429,44 +430,131 @@ $('wordsCat').onchange = () => render();
 
 // ---------- Prossimi eventi ----------
 const dayShort = d => d.toLocaleDateString('it-IT', { weekday: 'short' }).replace('.', '');
-function eventRow(n, ev) {
-  const time = ev.allDay ? 'Tutto il giorno' : ev.start.toLocaleTimeString('it-IT', { hour: '2-digit', minute: '2-digit' });
-  return `<div class="uprow" data-id="${n.id}" style="--h:${hue(n.category)}">
-    <div class="update"><small>${dayShort(ev.start)}</small><b>${ev.start.getDate()}</b></div>
-    <div class="uptext"><b>${esc(ev.title)}</b><span class="muted small">${time} · ${emoji(n.category)} ${esc(n.category)}</span></div>
+// Tutti gli eventi (note + calendari collegati) tra due date, già ordinati
+function eventsBetween(notes, from, to) {
+  const out = [];
+  for (const n of notes) {
+    const ev = noteEvent(n); if (!ev) continue;
+    for (const d of Smart.occurrences(ev, from, to)) out.push({ n, start: d, title: ev.title, allDay: ev.allDay, repeat: ev.repeat, hue: hue(n.category), sub: `${emoji(n.category)} ${n.category}` });
+  }
+  for (const e of extEvents) for (const d of Smart.occurrences(e, from, to))
+    out.push({ ext: e, start: d, title: e.title, allDay: e.allDay, repeat: e.repeat, hue: e.hue, sub: `${e.cal}${e.where ? ' · ' + e.where : ''}` });
+  return out.sort((a, b) => a.start - b.start);
+}
+function eventRow(o) {
+  const time = o.allDay ? 'Tutto il giorno' : o.start.toLocaleTimeString('it-IT', { hour: '2-digit', minute: '2-digit' });
+  return `<div class="uprow${o.ext ? ' ext' : ''}" ${o.n ? `data-id="${o.n.id}"` : `data-ext="${esc(o.title)}|${esc(o.sub)}"`} style="--h:${o.hue}">
+    <div class="update"><small>${dayShort(o.start)}</small><b>${o.start.getDate()}</b></div>
+    <div class="uptext"><b>${o.repeat ? '🔁 ' : ''}${esc(o.title)}</b><span class="muted small">${time} · ${esc(o.sub)}</span></div>
   </div>`;
 }
 function renderUpcoming(all) {
-  const today = startOfToday();
-  const evs = all.map(n => [n, noteEvent(n)]).filter(([, e]) => e && e.start >= today).sort((a, b) => a[1].start - b[1].start).slice(0, 3);
-  $('upcoming').innerHTML = evs.length ? '<h3>Prossimi eventi</h3>' + evs.map(([n, e]) => eventRow(n, e)).join('') : '';
+  const now = new Date(), end = new Date(now); end.setDate(now.getDate() + 60);
+  const evs = eventsBetween(all, startOfToday(), end).filter(o => o.allDay ? o.start >= startOfToday() : o.start >= new Date(now - 3600e3)).slice(0, 3);
+  $('upcoming').innerHTML = evs.length ? '<h3>Prossimi eventi</h3>' + evs.map(eventRow).join('') : '';
   $('upcoming').classList.toggle('hidden', !evs.length);
+  renderTodo(all);
 }
-$('upcoming').onclick = async e => { const r = e.target.closest('.uprow'); if (r) openNote(await DB.get(r.dataset.id)); };
+// ---------- Liste ancora da completare (promemoria in Home) ----------
+function renderTodo(all) {
+  const lists = all.filter(n => liveItems(n).some(i => !i.done)).slice(0, 3);
+  $('todo').innerHTML = lists.length ? '<h3>Da completare</h3>' + lists.map(n => {
+    const left = liveItems(n).filter(i => !i.done);
+    return `<div class="uprow" data-id="${n.id}" style="--h:${hue(n.category)}">
+      <div class="update todoicon">${emoji(n.category)}</div>
+      <div class="uptext"><b>${n.shared ? '👥 ' : ''}${esc(n.title)}</b><span class="muted small">${left.length} ${left.length === 1 ? 'cosa' : 'cose'} da prendere · ${esc(left.slice(0, 3).map(i => i.t).join(', '))}${left.length > 3 ? '…' : ''}</span></div>
+    </div>`;
+  }).join('') : '';
+  $('todo').classList.toggle('hidden', !lists.length || !!filter || !!$('search').value.trim());
+}
+
+// ---------- Calendari collegati (Google, iCloud, Outlook) ----------
+let extEvents = [];
+const calList = () => { try { return JSON.parse(localStorage.calendars) || []; } catch { return []; } };
+const saveCals = l => { localStorage.calendars = JSON.stringify(l); localStorage.catsUpdated = Date.now(); Cloud.schedule(); };
+async function loadExtEvents() {
+  extEvents = [];
+  for (const c of calList()) {
+    const cache = await DB.getMeta('cal:' + c.id);
+    if (cache) extEvents.push(...cache.evs.map(e => ({ ...e, start: new Date(e.start), cal: c.name, hue: c.hue })));
+  }
+}
+async function refreshCalendars(force) {
+  if (!Cloud.enabled) return;
+  let changed = false;
+  const cals = calList();
+  for (const c of cals) {
+    const cache = await DB.getMeta('cal:' + c.id);
+    if (!force && cache && Date.now() - cache.t < 30 * 60e3) continue;
+    try {
+      const from = Date.now() - 60 * 864e5, to = Date.now() + 400 * 864e5;
+      const evs = Smart.parseICS(await Cloud.fetchCalendar(c.url)).filter(e => e.repeat || (e.start >= from && e.start <= to));
+      await DB.setMeta('cal:' + c.id, { t: Date.now(), evs: evs.map(e => ({ ...e, start: e.start.getTime() })) });
+      c.error = ''; changed = true;
+    } catch (e) { c.error = e.message; }
+  }
+  saveCalsQuiet(cals);
+  if (changed) { await loadExtEvents(); render(); }
+}
+const saveCalsQuiet = l => localStorage.calendars = JSON.stringify(l);
+function renderCalSettings() {
+  $('calLinks').innerHTML = calList().map(c => `<li style="--h:${c.hue}"><i></i><span><b>${esc(c.name)}</b>${c.error ? `<small class="danger">⚠️ ${esc(c.error)}</small>` : '<small class="muted">Collegato</small>'}</span><button type="button" data-rm="${c.id}" aria-label="Scollega">✕</button></li>`).join('') || '<li class="muted small">Nessun calendario collegato.</li>';
+}
+$('calLinks').onclick = async e => {
+  const b = e.target.closest('[data-rm]'); if (!b) return;
+  if (!confirm('Scollegare questo calendario?')) return;
+  saveCals(calList().filter(c => c.id !== b.dataset.rm)); await DB.delMeta('cal:' + b.dataset.rm);
+  await loadExtEvents(); renderCalSettings(); render();
+};
+$('btnAddCal').onclick = async () => {
+  const url = $('calUrl').value.trim(), name = $('calName').value.trim() || 'Calendario';
+  if (!/^(https|webcal):\/\//i.test(url)) return alert('Incolla il link del calendario (inizia con https:// o webcal://)');
+  const b = $('btnAddCal'); b.disabled = true; b.textContent = '⏳ Collego…';
+  try {
+    const evs = Smart.parseICS(await Cloud.fetchCalendar(url));
+    const c = { id: crypto.randomUUID().slice(0, 8), name, url, hue: [210, 140, 20, 280, 340][calList().length % 5] };
+    saveCals([...calList(), c]);
+    await DB.setMeta('cal:' + c.id, { t: Date.now(), evs: evs.map(e => ({ ...e, start: e.start.getTime() })) });
+    $('calUrl').value = $('calName').value = '';
+    await loadExtEvents(); renderCalSettings(); render();
+    showToast(`Collegato: ${evs.length} eventi`);
+  } catch (e) { alert('Non riesco a leggere il calendario: ' + e.message); }
+  b.disabled = false; b.textContent = 'Collega';
+};
+
+async function onEventTap(e) {
+  const r = e.target.closest('.uprow'); if (!r) return;
+  if (r.dataset.id) return openNote(await DB.get(r.dataset.id));
+  const [t, sub] = r.dataset.ext.split('|'); showToast(`${t} · ${sub}`);
+}
+$('upcoming').onclick = onEventTap;
 
 // ---------- Calendario ----------
 let calMonth = new Date(); calMonth.setDate(1);
 let calSel = startOfToday();
 const sameDay = (a, b) => a.getFullYear() === b.getFullYear() && a.getMonth() === b.getMonth() && a.getDate() === b.getDate();
 function renderCalendar(every) {
-  const evs = every.map(n => [n, noteEvent(n)]).filter(([, e]) => e);
   $('calTitle').textContent = calMonth.toLocaleDateString('it-IT', { month: 'long', year: 'numeric' });
   const first = new Date(calMonth), offset = (first.getDay() + 6) % 7;
   const start = new Date(first); start.setDate(1 - offset);
+  const gridEnd = new Date(start); gridEnd.setDate(start.getDate() + 42);
+  const evs = eventsBetween(every, start, gridEnd);
   const today = startOfToday();
   let html = '';
   for (let i = 0; i < 42; i++) {
     const d = new Date(start); d.setDate(start.getDate() + i);
     if (i >= 35 && d.getMonth() !== calMonth.getMonth()) break;
-    const dayEvs = evs.filter(([, e]) => sameDay(e.start, d));
+    const dayEvs = evs.filter(o => sameDay(o.start, d));
     const cls = [d.getMonth() !== calMonth.getMonth() && 'other', sameDay(d, today) && 'today', sameDay(d, calSel) && 'sel'].filter(Boolean).join(' ');
-    html += `<button type="button" class="${cls}" data-d="${d.getTime()}"><span>${d.getDate()}</span><span class="dots">${dayEvs.slice(0, 3).map(([n]) => `<i style="--h:${hue(n.category)}"></i>`).join('')}</span></button>`;
+    html += `<button type="button" class="${cls}" data-d="${d.getTime()}"><span>${d.getDate()}</span><span class="dots">${dayEvs.slice(0, 3).map(o => `<i style="--h:${o.hue}"></i>`).join('')}</span></button>`;
   }
   $('calGrid').innerHTML = html;
-  const sel = evs.filter(([, e]) => sameDay(e.start, calSel)).sort((a, b) => a[1].start - b[1].start);
+  const next = new Date(calSel); next.setDate(calSel.getDate() + 1);
+  const sel = eventsBetween(every, calSel, next);
   const t = calSel.toLocaleDateString('it-IT', { weekday: 'long', day: 'numeric', month: 'long' });
   $('calDayTitle').textContent = t[0].toUpperCase() + t.slice(1);
-  $('calList').innerHTML = sel.length ? sel.map(([n]) => noteItem(n, true)).join('') : '<li class="empty">Nessun evento in questo giorno.</li>';
+  $('calList').innerHTML = sel.length ? '' : '<li class="empty">Nessun evento in questo giorno.<br>Tocca 🎙️ e di\' per esempio “venerdì alle 18 aperitivo”.</li>';
+  $('calExt').innerHTML = sel.length ? `<div class="upcoming">${sel.map(eventRow).join('')}</div>` : '';
 }
 $('calGrid').onclick = e => { const b = e.target.closest('[data-d]'); if (!b) return; calSel = new Date(+b.dataset.d); if (calSel.getMonth() !== calMonth.getMonth()) calMonth = new Date(calSel.getFullYear(), calSel.getMonth(), 1); render(); };
 $('calPrev').onclick = () => { calMonth = new Date(calMonth.getFullYear(), calMonth.getMonth() - 1, 1); render(); };
@@ -490,6 +578,7 @@ document.querySelector('.tabs').onclick = e => {
   document.querySelectorAll('.tab').forEach(x => x.classList.toggle('on', x === t));
   for (const v of ['viewNotes', 'viewCal', 'viewStats', 'viewArch']) $(v).classList.toggle('hidden', v !== currentView);
   closeSwipe(); render(); renderHeader(); scrollTo({ top: 0 });
+  if (currentView === 'viewCal') refreshCalendars();
 };
 
 $('folders').onclick = e => {
@@ -978,7 +1067,8 @@ function openSettings() {
   $('accountBox').classList.toggle('hidden', !Cloud.enabled);
   $('btnLogout').classList.toggle('hidden', !Cloud.enabled);
   $('accountEmail').textContent = Cloud.email;
-  paintSegs();
+  paintSegs(); renderCalSettings();
+  $('calSection').classList.toggle('hidden', !Cloud.enabled);
   openSheet($('settingsDlg'));
 }
 $('btnSettings').onclick = openSettings;
@@ -1094,6 +1184,7 @@ function unlock() {
   renderWeather();
   setTimeout(askName, Cloud.enabled ? 2500 : 300); // prima lascia arrivare il nome dall'account
   checkJoinLink();
+  loadExtEvents().then(() => { render(); refreshCalendars(); });
   Cloud.watchShared && Cloud.watchShared(() => Cloud.sync());
   if (!localStorage.credId && !localStorage.faceIdAsked && window.PublicKeyCredential) {
     localStorage.faceIdAsked = 1;

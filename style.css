@@ -338,3 +338,18 @@ label.addbtn{display:grid;place-items:center;cursor:pointer}
 .recsheet.paused .dot{filter:grayscale(.6);opacity:.7}
 .recsheet.paused .timer{animation:blink 1.2s steps(2) infinite}
 @keyframes blink{50%{opacity:.35}}
+/* Da completare */
+.todoicon{display:grid;place-items:center;font-size:1.3rem;min-height:46px}
+/* Eventi dai calendari collegati */
+.uprow.ext .update{background:color-mix(in srgb,hsl(var(--h) 80% 55%) 14%,transparent);border:1px dashed hsl(var(--h) 70% 55% / .5)}
+#calExt .upcoming{margin-top:0}
+/* Impostazioni calendari */
+.callinks{list-style:none;margin:0;padding:0;display:grid;gap:8px}
+.callinks li{display:flex;align-items:center;gap:10px}
+.callinks li i{width:12px;height:12px;border-radius:50%;background:hsl(var(--h) 80% 55%);flex:0 0 12px}
+.callinks li span{flex:1;display:grid;min-width:0}
+.callinks li small{font-size:.75rem;overflow:hidden;text-overflow:ellipsis}
+.callinks li button{color:var(--faint);padding:4px 8px}
+.help{font-size:.84rem;color:var(--text)}
+.help summary{color:var(--accent);font-weight:600;cursor:pointer;padding:4px 0}
+.help p{margin:8px 0;line-height:1.45}

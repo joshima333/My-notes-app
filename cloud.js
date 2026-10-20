@@ -185,10 +185,10 @@ const Cloud = (() => {
       if (st?.data && st.updated > localUpd) {
         const prof = await decJSON(st.data);
         if (Array.isArray(prof)) localStorage.cats = JSON.stringify(prof);
-        else { localStorage.cats = JSON.stringify(prof.cats || []); if (prof.name) localStorage.name = prof.name; if (prof.meta) localStorage.catMeta = JSON.stringify(prof.meta); }
+        else { localStorage.cats = JSON.stringify(prof.cats || []); if (prof.name) localStorage.name = prof.name; if (prof.meta) localStorage.catMeta = JSON.stringify(prof.meta); if (prof.calendars) localStorage.calendars = JSON.stringify(prof.calendars); }
         localStorage.catsUpdated = st.updated; changed = true;
       } else if (localUpd > (st?.updated || 0)) {
-        await sb.from('user_settings').update({ data: await encJSON({ cats: JSON.parse(localStorage.cats || '[]'), name: localStorage.name || '', meta: JSON.parse(localStorage.catMeta || '{}') }), updated: localUpd }).eq('user_id', user.id);
+        await sb.from('user_settings').update({ data: await encJSON({ cats: JSON.parse(localStorage.cats || '[]'), name: localStorage.name || '', meta: JSON.parse(localStorage.catMeta || '{}'), calendars: JSON.parse(localStorage.calendars || '[]') }), updated: localUpd }).eq('user_id', user.id);
       }
       api.onStatus('ok');
       if (changed) api.onChange();
@@ -197,6 +197,17 @@ const Cloud = (() => {
     if (again) { again = false; sync(); }
   }
   api.sync = sync;
+  // scarica un calendario esterno tramite la funzione "calendario" di Supabase
+  api.fetchCalendar = async url => {
+    const { data, error } = await sb.functions.invoke('calendario', { body: { url } });
+    if (error) {
+      let msg = error.message;
+      try { msg = await error.context.text(); } catch {}
+      if (/not found|404/i.test(msg)) msg = 'la funzione "calendario" non è ancora attiva su Supabase';
+      throw new Error(msg);
+    }
+    return typeof data === 'string' ? data : await new Response(data).text();
+  };
 
   // ---------- Liste condivise ----------
   // Ogni lista ha una sua chiave, che viaggia solo nel link (dopo il #): il server non la vede mai.

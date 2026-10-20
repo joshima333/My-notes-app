@@ -46,6 +46,7 @@
       </div>
       <div id="spark" class="spark hidden"></div>
       <div id="upcoming" class="upcoming hidden"></div>
+      <div id="todo" class="upcoming hidden"></div>
       <div id="agenda" class="hidden"></div>
       <div class="sectionhead"><h2>Raccolte</h2><span class="headright"><span id="syncIcon" class="syncpill hidden"></span><button type="button" class="pill writenew" data-write>✍️ Nuova</button></span></div>
       <div id="folders" class="folders"></div>
@@ -74,6 +75,7 @@
     </div>
     <h3 id="calDayTitle" class="daytitle"></h3>
     <ul id="calList" class="notes grouped"></ul>
+    <div id="calExt"></div>
   </section>
 
   <!-- STATISTICHE -->
@@ -229,6 +231,20 @@
         <option value="Xenova/whisper-base">Veloce (~80 MB, meno precisa)</option>
       </select>
     </label>
+    <div id="calSection" class="setgroup">
+      <div class="setrow"><span>📆 Calendari collegati</span></div>
+      <ul id="calLinks" class="callinks"></ul>
+      <input id="calName" placeholder="Nome (es. Google personale)">
+      <input id="calUrl" placeholder="Link privato del calendario (iCal / ICS)" inputmode="url" autocapitalize="off" autocorrect="off">
+      <button type="button" id="btnAddCal" class="primary">Collega</button>
+      <details class="help">
+        <summary>Dove trovo il link?</summary>
+        <p><b>Google Calendar</b> (dal computer): Impostazioni → clic sul calendario → “Indirizzo segreto in formato iCal” → copia.</p>
+        <p><b>iCloud / Calendario iPhone</b>: app Calendario → Calendari → ⓘ accanto al calendario → attiva “Calendario pubblico” → Condividi link → Copia.</p>
+        <p><b>Outlook</b>: Impostazioni → Calendario → Calendari condivisi → Pubblica un calendario → “Tutti i dettagli” → Pubblica → copia il link ICS.</p>
+        <p class="muted">Gli eventi si aggiornano da soli ogni 30 minuti quando apri l’app. Il link resta salvato cifrato nel tuo account.</p>
+      </details>
+    </div>
     <label>Raccolte (una per riga)
       <textarea id="catsInput" rows="6"></textarea>
     </label>
