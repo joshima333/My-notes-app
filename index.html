@@ -45,14 +45,14 @@
       <div id="spark" class="spark hidden"></div>
       <div id="upcoming" class="upcoming hidden"></div>
       <div id="agenda" class="hidden"></div>
-      <div class="sectionhead"><h2>Raccolte</h2><span id="syncIcon" class="syncpill hidden"></span></div>
+      <div class="sectionhead"><h2>Raccolte</h2><span class="headright"><span id="syncIcon" class="syncpill hidden"></span><button type="button" class="pill writenew" data-write>✍️ Nuova</button></span></div>
       <div id="folders" class="folders"></div>
       <ul id="results" class="notes grouped hidden"></ul>
     </div>
     <div id="folderView" class="hidden">
       <div class="folderhead">
         <button id="btnBack" class="pill back">‹ Raccolte</button>
-        <button id="btnEditCat" type="button" class="pill iconbtn" aria-label="Modifica raccolta">✏️</button>
+        <span class="headright"><button type="button" class="pill writenew" data-write>✍️ Nuova</button><button id="btnEditCat" type="button" class="pill iconbtn" aria-label="Modifica raccolta">✏️</button></span>
       </div>
       <h2 id="folderTitle" class="foldertitle"></h2>
       <ul id="notes" class="notes grouped"></ul>
@@ -122,6 +122,14 @@
   </div>
 </div>
 
+<dialog id="viewer" class="viewer">
+  <img id="viewerImg" alt="Foto della nota">
+  <div class="viewerbar">
+    <button type="button" id="viewerDel" class="pill danger">🗑️ Elimina</button>
+    <button type="button" id="viewerClose" class="pill">Chiudi</button>
+  </div>
+</dialog>
+
 <div id="toast" class="toast hidden" role="status">Nota eliminata <button type="button" id="btnUndo">Annulla</button></div>
 
 <dialog id="noteDlg" class="sheet">
@@ -148,12 +156,16 @@
         </div>
       </div>
     </div>
+    <div id="photos" class="photos hidden"></div>
+    <button type="button" id="btnShareList" class="sharelist hidden">👥 Condividi questa lista</button>
     <ul id="checklist" class="checklist hidden"></ul>
     <textarea id="noteText" rows="7" placeholder="Scrivi qui…"></textarea>
     <div class="addrow">
       <input id="addItem" form="addItemForm" placeholder="Aggiungi…" enterkeyhint="done">
       <button type="submit" form="addItemForm" class="addbtn" aria-label="Aggiungi">＋</button>
       <button type="button" id="btnAppendRec" class="addbtn mic" aria-label="Aggiungi a voce">🎙️</button>
+      <label class="addbtn" for="photoInput" aria-label="Aggiungi foto">📷</label>
+      <input type="file" id="photoInput" accept="image/*" hidden>
     </div>
     <div id="appendLive" class="live appendlive hidden"></div>
     <button type="button" id="btnRetry" class="hidden">🔁 Riprova trascrizione</button>

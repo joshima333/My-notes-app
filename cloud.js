@@ -83,10 +83,22 @@ const Cloud = (() => {
     key = user = null;
   };
 
-  api.markDeleted = async id => {
+  api.markDeleted = async (id, photos) => {
     if (!key) return;
     const dead = (await DB.getMeta('dead')) || [];
-    dead.push(id); await DB.setMeta('dead', dead); api.schedule();
+    dead.push(id); await DB.setMeta('dead', dead);
+    for (const p of photos || []) await api.removeFile(`${id}/${p.id}`);
+    api.schedule();
+  };
+  api.removeFile = async path => {
+    if (!key) return;
+    const files = (await DB.getMeta('deadFiles')) || [];
+    files.push(path); await DB.setMeta('deadFiles', files); api.schedule();
+  };
+  api.fetchPhoto = async (noteId, p) => {
+    const { data, error } = await sb.storage.from('audio').download(`${user.id}/${noteId}/${p.id}`);
+    if (error) fail(error);
+    return new Blob([await decrypt(new Uint8Array(await data.arrayBuffer()))], { type: p.type || 'image/jpeg' });
   };
   api.schedule = () => { if (!key) return; clearTimeout(timer); timer = setTimeout(sync, 1500); };
 
@@ -97,7 +109,8 @@ const Cloud = (() => {
   };
 
   const pick = n => ({ created: n.created, category: n.category, title: n.title, text: n.text,
-    duration: n.duration, pending: !!n.pending, failed: !!n.failed, mime: n.audio?.type || n.mime || '', items: n.items || null, pinned: !!n.pinned, archived: !!n.archived, done: !!n.done, keepActive: !!n.keepActive });
+    duration: n.duration, pending: !!n.pending, failed: !!n.failed, mime: n.audio?.type || n.mime || '', items: n.items || null, pinned: !!n.pinned, archived: !!n.archived, done: !!n.done, keepActive: !!n.keepActive,
+    photos: (n.photos || []).map(p => ({ id: p.id, type: p.type })), shared: n.shared || null });
 
   async function sync() {
     if (!key || !user || !navigator.onLine) return;
@@ -112,6 +125,11 @@ const Cloud = (() => {
         if (r.error) fail(r.error);
       }
       if (dead.length) await DB.setMeta('dead', ((await DB.getMeta('dead')) || []).filter(id => !dead.includes(id)));
+      const files = (await DB.getMeta('deadFiles')) || [];
+      if (files.length) {
+        await sb.storage.from('audio').remove(files.map(f => `${user.id}/${f}`));
+        await DB.setMeta('deadFiles', ((await DB.getMeta('deadFiles')) || []).filter(f => !files.includes(f)));
+      }
       // 2. invio modifiche locali
       for (const n of await DB.all()) {
         if (!n.dirty) continue;
@@ -120,11 +138,22 @@ const Cloud = (() => {
           const r = await sb.storage.from('audio').upload(`${user.id}/${n.id}`, blob, { upsert: true, contentType: 'application/octet-stream' });
           if (r.error) fail(r.error);
         }
+        const sent = [];
+        for (const p of n.photos || []) if (p.blob && !p.synced) {
+          const blob = new Blob([await encrypt(new Uint8Array(await p.blob.arrayBuffer()))], { type: 'application/octet-stream' });
+          const up = await sb.storage.from('audio').upload(`${user.id}/${n.id}/${p.id}`, blob, { upsert: true, contentType: 'application/octet-stream' });
+          if (up.error) fail(up.error);
+          sent.push(p.id);
+        }
         const r = await sb.from('notes').upsert({ id: n.id, user_id: user.id, data: await encJSON(pick(n)),
           has_audio: !!(n.audio || n.hasAudio), deleted: false, updated: n.updated });
         if (r.error) fail(r.error);
         const cur = await DB.get(n.id);
-        if (cur && cur.updated === n.updated) { cur.dirty = false; cur.audioSynced = !!cur.audio; await DB.put(cur); }
+        if (cur) {
+          for (const p of cur.photos || []) if (sent.includes(p.id)) p.synced = true;
+          if (cur.updated === n.updated) { cur.dirty = false; cur.audioSynced = !!cur.audio; }
+          await DB.put(cur);
+        }
       }
       // 3. ricezione dagli altri dispositivi
       const { data: rows, error } = await sb.from('notes').select('id,data,has_audio,deleted,updated');
@@ -135,9 +164,20 @@ const Cloud = (() => {
         if (r.deleted) { if (local) { await DB.del(r.id); changed = true; } continue; }
         if (local && (local.dirty || local.updated >= r.updated)) continue;
         const d = await decJSON(r.data);
-        await DB.put({ ...d, id: r.id, updated: r.updated, dirty: false, hasAudio: r.has_audio,
+        const photos = (d.photos || []).map(p => ({ ...p, blob: local?.photos?.find(x => x.id === p.id)?.blob || null, synced: true }));
+        await DB.put({ ...d, photos, id: r.id, updated: r.updated, dirty: false, hasAudio: r.has_audio,
           audio: local?.audio || null, audioSynced: true });
         changed = true;
+      }
+      // 3b. liste condivise
+      for (const n of await DB.all()) {
+        if (!n.shared) continue;
+        try {
+          const merged = await api.syncShared(n);
+          if (canon(merged) !== canon(n.items)) {
+            const cur = await DB.get(n.id); cur.items = merged; cur.updated = Date.now(); cur.dirty = true; await DB.put(cur); changed = true; again = true;
+          }
+        } catch (e) { console.warn('lista condivisa', e); }
       }
       // 4. raccolte
       const { data: st } = await sb.from('user_settings').select('data,updated').eq('user_id', user.id).single();
@@ -157,6 +197,67 @@ const Cloud = (() => {
     if (again) { again = false; sync(); }
   }
   api.sync = sync;
+
+  // ---------- Liste condivise ----------
+  // Ogni lista ha una sua chiave, che viaggia solo nel link (dopo il #): il server non la vede mai.
+  const b64u = b => b64(b).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
+  const unb64u = s => unb64(s.replace(/-/g, '+').replace(/_/g, '/') + '==='.slice((s.length + 3) % 4));
+  const listKey = k => crypto.subtle.importKey('raw', unb64u(k), 'AES-GCM', false, ['encrypt', 'decrypt']);
+  async function encWith(k, obj) {
+    const iv = crypto.getRandomValues(new Uint8Array(12));
+    const ct = new Uint8Array(await crypto.subtle.encrypt({ name: 'AES-GCM', iv }, await listKey(k), te.encode(JSON.stringify(obj))));
+    const out = new Uint8Array(12 + ct.length); out.set(iv); out.set(ct, 12); return b64(out);
+  }
+  async function decWith(k, s) {
+    const b = unb64(s);
+    return JSON.parse(td.decode(await crypto.subtle.decrypt({ name: 'AES-GCM', iv: b.slice(0, 12) }, await listKey(k), b.slice(12))));
+  }
+  // unione: per ogni voce vince la modifica più recente
+  api.mergeItems = (a = [], b = []) => {
+    const m = new Map();
+    for (const it of [...a, ...b]) { const o = m.get(it.id); if (!o || (it.u || 0) > (o.u || 0)) m.set(it.id, it); }
+    return [...m.values()];
+  };
+  const canon = items => JSON.stringify([...(items || [])].sort((a, b) => a.id < b.id ? -1 : 1));
+  api.shareList = async n => {
+    if (!key) throw new Error('Serve l\'accesso all\'account');
+    const id = crypto.randomUUID(), k = b64u(crypto.getRandomValues(new Uint8Array(32)));
+    const updated = Date.now();
+    let r = await sb.from('shared_lists').insert({ id, data: await encWith(k, { title: n.title, items: n.items || [] }), updated });
+    if (r.error) fail(r.error);
+    r = await sb.from('shared_list_members').insert({ list_id: id });
+    if (r.error) fail(r.error);
+    n.shared = { id, key: k };
+    return api.shareLink(n);
+  };
+  api.shareLink = n => `${location.origin}${location.pathname}#lista=${n.shared.id}.${n.shared.key}`;
+  api.joinList = async (id, k) => {
+    const r = await sb.from('shared_list_members').insert({ list_id: id });
+    if (r.error && r.error.code !== '23505') fail(r.error);
+    const { data, error } = await sb.from('shared_lists').select('data,updated').eq('id', id).single();
+    if (error) fail(error);
+    const d = await decWith(k, data.data);
+    return { title: d.title, items: d.items, shared: { id, key: k, seen: data.updated } };
+  };
+  // scarica le modifiche degli altri e invia le proprie
+  api.syncShared = async n => {
+    const { data, error } = await sb.from('shared_lists').select('data,updated').eq('id', n.shared.id).single();
+    if (error) fail(error);
+    const remote = await decWith(n.shared.key, data.data);
+    const merged = api.mergeItems(remote.items, n.items);
+    const changedRemote = canon(merged) !== canon(remote.items);
+    if (changedRemote) {
+      const updated = Date.now();
+      const up = await sb.from('shared_lists').update({ data: await encWith(n.shared.key, { title: remote.title || n.title, items: merged }), updated }).eq('id', n.shared.id);
+      if (up.error) fail(up.error);
+    }
+    return merged;
+  };
+  let channel = null;
+  api.watchShared = cb => {
+    if (!sb || channel) return;
+    channel = sb.channel('liste').on('postgres_changes', { event: 'UPDATE', schema: 'public', table: 'shared_lists' }, p => cb(p.new.id)).subscribe();
+  };
   if (enabled) {
     addEventListener('online', sync);
     setInterval(sync, 60000);

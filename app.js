@@ -10,6 +10,10 @@ const settings = {
   set model(v) { localStorage.model = v },
 };
 
+// Voci delle liste: id + ora di modifica servono per unire le modifiche fatte da più persone
+const mkItem = (t, done = false) => ({ id: crypto.randomUUID().slice(0, 8), t, done, u: Date.now() });
+const liveItems = n => (n?.items || []).filter(i => !i.del);
+
 // Ogni modifica fatta dall'utente passa da qui: salva in locale e sincronizza
 async function saveNote(n, quiet) {
   n.updated = Date.now(); n.dirty = true;
@@ -146,7 +150,7 @@ async function stop() {
   if (discardRec) { discardRec = false; return; }
   if (!text && !audio) return;
   const pending = !text && !!audio;
-  const items = Smart.isShopping(selCat()) && text ? Smart.parseList(text).map(t => ({ t, done: false })) : null;
+  const items = Smart.isShopping(selCat()) && text ? Smart.parseList(text).map(t => mkItem(t)) : null;
   const note = {
     id: crypto.randomUUID(), created: Date.now(),
     category: selCat(),
@@ -218,7 +222,7 @@ async function nextJob() {
   await DB.put(note);
   try {
     const text = await runWhisper(note.audio, setStatus);
-    if (Smart.isShopping(note.category)) note.items = Smart.parseList(text).map(t => ({ t, done: false }));
+    if (Smart.isShopping(note.category)) note.items = Smart.parseList(text).map(t => mkItem(t));
     Object.assign(note, { text, pending: false, failed: false, attempts: 0, title: note.title === 'Nota vocale' && text ? makeTitle(text) : note.title });
     await saveNote(note);
     if (!$('noteDlg').open && !locked) openNote(note);
@@ -250,9 +254,10 @@ const noteItem = (n, showCat) => `
     </div>
   </li>`;
 function notePreview(n) {
-  if (n.items?.length) {
-    const done = n.items.filter(i => i.done).length;
-    return `✅ ${done}/${n.items.length} · ` + esc(n.items.filter(i => !i.done).map(i => i.t).join(', ') || 'tutto preso!');
+  const its = liveItems(n);
+  if (its.length) {
+    const done = its.filter(i => i.done).length;
+    return (n.shared ? '👥 ' : '') + `✅ ${done}/${its.length} · ` + esc(its.filter(i => !i.done).map(i => i.t).join(', ') || 'tutto preso!');
   }
   const ev = Smart.parseEvent(n.text, new Date(n.created));
   return (ev ? `📅 ${esc(Smart.fmtEvent(ev))} · ` : '') + esc(Smart.preview(n.text));
@@ -307,7 +312,7 @@ async function render() {
     if (filter === 'pinned') list = list.filter(n => n.pinned);
     if (filter === 'audio') list = list.filter(n => n.audio || n.hasAudio);
     if (filter === 'photo') list = list.filter(n => n.photos?.length);
-    if (filter === 'lists') list = list.filter(n => n.items?.length);
+    if (filter === 'lists') list = list.filter(n => liveItems(n).length);
     $('results').innerHTML = list.length ? list.map(n => noteItem(n, true)).join('') : '<li class="empty">Niente qui per ora.</li>';
     return;
   }
@@ -365,7 +370,7 @@ function renderStats(every) {
   const now = Date.now(), active = every.filter(n => !n.archived);
   const month = every.filter(n => now - n.created < 30 * 864e5);
   const secs = every.reduce((a, n) => a + (n.duration || 0), 0);
-  const items = every.flatMap(n => n.items || []);
+  const items = every.flatMap(n => liveItems(n));
   const evs = every.filter(n => noteEvent(n));
   const tile = (v, l) => `<div class="tile"><b>${v}</b><span>${l}</span></div>`;
   $('statTiles').innerHTML = tile(every.length, 'note totali') + tile(month.length, 'ultimi 30 giorni') +
@@ -526,7 +531,7 @@ async function deleteWithUndo(li) {
   const note = await DB.get(id);
   await DB.del(id);
   const t = setTimeout(() => commit(), 4000);
-  const commit = async () => { clearTimeout(t); $('toast').classList.add('hidden'); undo = null; Cloud.markDeleted(id); render(); };
+  const commit = async () => { clearTimeout(t); $('toast').classList.add('hidden'); undo = null; Cloud.markDeleted(id, note?.photos); render(); };
   undo = { commit, restore: async () => { clearTimeout(t); $('toast').classList.add('hidden'); undo = null; await DB.put(note); render(); } };
   $('toast').classList.remove('hidden');
 }
@@ -550,11 +555,12 @@ function openMove(id) {
 $('moveList').onclick = async e => {
   const b = e.target.closest('[data-cat]'); if (!b) return;
   const n = await DB.get(moveId);
-  if (n) { n.category = b.dataset.cat; if (Smart.isShopping(n.category) && !n.items && n.text) n.items = Smart.parseList(n.text).map(t => ({ t, done: false })); await saveNote(n); }
+  if (n) { n.category = b.dataset.cat; if (Smart.isShopping(n.category) && !n.items && n.text) n.items = Smart.parseList(n.text).map(t => mkItem(t)); await saveNote(n); }
   $('moveDlg').close();
 };
 
 // ---------- Nota scritta ----------
+document.addEventListener('click', e => { if (e.target.closest('[data-write]')) $('btnWrite').onclick(); });
 $('btnWrite').onclick = async () => {
   if (recording && !appendMode) { discardRec = true; await stop(); }
   openNote({ id: crypto.randomUUID(), created: Date.now(), category: selCat(), title: '', text: '', audio: null, draft: true });
@@ -628,28 +634,118 @@ function openNote(n) {
   showAudio(n.audio);
   $('btnLoadAudio').classList.toggle('hidden', !!n.audio || !n.hasAudio);
   $('btnRetry').classList.toggle('hidden', IS_IOS || !(n.audio && !n.pending && (n.failed || !n.text)));
-  if (Smart.isShopping(n.category) && !n.items && n.text) n.items = Smart.parseList(n.text).map(t => ({ t, done: false }));
+  if (n.items) n.items = n.items.map(i => i.id ? i : { ...mkItem(i.t, i.done), u: 0 });
+  if (Smart.isShopping(n.category) && !n.items && n.text) n.items = Smart.parseList(n.text).map(t => mkItem(t));
   renderChecklist();
   renderEvent();
+  renderPhotos();
   setToolLabels();
   $('noteMeta').textContent = n.draft ? 'Nuova nota' : `${fmtDate(n.created)}${n.archived ? ' · Archiviata' : ''}`;
   caret = null;
-  $('addItem').placeholder = isList() ? 'Aggiungi alla lista…' : 'Aggiungi testo alla nota…';
+  $('addItem').placeholder = isList() ? 'Aggiungi alla lista…' : 'Aggiungi testo…';
   $('appendLive').classList.add('hidden');
   $('noteDlg').showModal();
 }
+// ---------- Foto ----------
+async function compressImage(file, max = 1600) {
+  const url = URL.createObjectURL(file);
+  try {
+    const img = await new Promise((res, rej) => { const i = new Image(); i.onload = () => res(i); i.onerror = rej; i.src = url; });
+    const r = Math.min(1, max / Math.max(img.naturalWidth, img.naturalHeight));
+    const c = document.createElement('canvas');
+    c.width = Math.round(img.naturalWidth * r); c.height = Math.round(img.naturalHeight * r);
+    c.getContext('2d').drawImage(img, 0, 0, c.width, c.height);
+    return await new Promise(res => c.toBlob(res, 'image/jpeg', 0.8));
+  } finally { URL.revokeObjectURL(url); }
+}
+let photoURLs = [];
+function renderPhotos() {
+  photoURLs.forEach(URL.revokeObjectURL); photoURLs = [];
+  const ps = current.photos || [];
+  $('photos').classList.toggle('hidden', !ps.length);
+  $('photos').innerHTML = ps.map(p => {
+    if (!p.blob) return `<button type="button" class="ph loading" data-p="${p.id}">⏳</button>`;
+    const u = URL.createObjectURL(p.blob); photoURLs.push(u);
+    return `<button type="button" class="ph" data-p="${p.id}" style="background-image:url(${u})" aria-label="Apri foto"></button>`;
+  }).join('');
+  // scarica (e decifra) le foto che arrivano da un altro dispositivo
+  const n = current;
+  for (const p of ps) if (!p.blob && Cloud.enabled) Cloud.fetchPhoto(n.id, p).then(async b => {
+    p.blob = b; p.synced = true; await DB.put(n); if (current === n) renderPhotos();
+  }).catch(() => {});
+}
+$('photoInput').onchange = async e => {
+  const f = e.target.files[0]; e.target.value = ''; if (!f) return;
+  syncFromForm();
+  const blob = await compressImage(f);
+  current.photos = [...(current.photos || []), { id: crypto.randomUUID().slice(0, 8), type: 'image/jpeg', blob }];
+  if (!current.title.trim()) { current.title = 'Foto'; $('noteTitle').value = 'Foto'; }
+  delete current.draft;
+  renderPhotos(); await saveNote(current);
+};
+let viewing = null;
+$('photos').onclick = e => {
+  const b = e.target.closest('.ph'); if (!b) return;
+  viewing = (current.photos || []).find(p => p.id === b.dataset.p); if (!viewing?.blob) return;
+  $('viewerImg').src = URL.createObjectURL(viewing.blob);
+  $('viewer').showModal();
+};
+$('viewerClose').onclick = () => $('viewer').close();
+$('viewer').addEventListener('close', () => URL.revokeObjectURL($('viewerImg').src));
+$('viewerDel').onclick = async () => {
+  if (!confirm('Eliminare questa foto?')) return;
+  current.photos = current.photos.filter(p => p !== viewing);
+  Cloud.removeFile(`${current.id}/${viewing.id}`);
+  $('viewer').close(); renderPhotos(); await saveNote(current);
+};
+
+// ---------- Lista condivisa ----------
+function renderShareBtn() {
+  const show = Cloud.enabled && isList() && !current.draft;
+  $('btnShareList').classList.toggle('hidden', !show);
+  $('btnShareList').textContent = current.shared ? '👥 Lista condivisa · invita altre persone' : '👥 Condividi questa lista';
+}
+$('btnShareList').onclick = async () => {
+  const b = $('btnShareList'); b.disabled = true;
+  try {
+    syncFromForm();
+    current.items = (current.items || []).map(i => i.id ? i : mkItem(i.t, i.done));
+    const link = current.shared ? Cloud.shareLink(current) : await Cloud.shareList(current);
+    await saveNote(current);
+    const text = `Ti condivido la lista "${current.title}". Aprila con l'app Note Vocali: ${link}`;
+    if (navigator.share) await navigator.share({ title: current.title, text }).catch(() => {});
+    else { await navigator.clipboard.writeText(link); alert('Link copiato! Mandalo alla persona con cui vuoi condividere la lista.'); }
+  } catch (e) { alert('Non riesco a condividere: ' + e.message); }
+  b.disabled = false; renderShareBtn();
+};
+async function checkJoinLink() {
+  const m = location.hash.match(/^#lista=([0-9a-f-]{36})\.([\w-]+)$/);
+  if (!m || !Cloud.enabled) return;
+  history.replaceState(null, '', location.pathname);
+  const existing = (await DB.all()).find(n => n.shared?.id === m[1]);
+  if (existing) return openNote(existing);
+  try {
+    const d = await Cloud.joinList(m[1], m[2]);
+    const cat = settings.cats.find(c => Smart.isShopping(c)) || selCat();
+    const n = { id: crypto.randomUUID(), created: Date.now(), category: cat, title: d.title || 'Lista condivisa', text: '', audio: null, items: d.items, shared: d.shared };
+    await saveNote(n); openNote(n); showToast('Ti sei unita alla lista 👥');
+  } catch (e) { alert('Non riesco ad aprire la lista condivisa: ' + e.message); }
+}
+window.addEventListener('hashchange', () => !locked && checkJoinLink());
+
 // Lista spuntabile
 function renderChecklist() {
-  const items = current.items || [];
+  renderShareBtn();
+  const items = liveItems(current);
   $('checklist').classList.toggle('hidden', !items.length);
-  $('checklist').innerHTML = items.map((it, i) =>
-    `<li class="${it.done ? 'done' : ''}" data-i="${i}"><span class="box">${it.done ? '✓' : ''}</span><span class="it">${esc(it.t)}</span><button type="button" class="rm" aria-label="Togli">✕</button></li>`).join('');
+  $('checklist').innerHTML = items.map(it =>
+    `<li class="${it.done ? 'done' : ''}" data-i="${it.id}"><span class="box">${it.done ? '✓' : ''}</span><span class="it">${esc(it.t)}</span><button type="button" class="rm" aria-label="Togli">✕</button></li>`).join('');
 }
 $('checklist').onclick = async e => {
   const li = e.target.closest('li'); if (!li) return;
-  const i = +li.dataset.i;
-  if (e.target.closest('.rm')) current.items.splice(i, 1);
-  else current.items[i].done = !current.items[i].done;
+  const it = current.items.find(x => x.id === li.dataset.i); if (!it) return;
+  if (e.target.closest('.rm')) it.del = true; else it.done = !it.done;
+  it.u = Date.now();
   renderChecklist(); await saveNote(current);
 };
 // Aggiungere a una nota esistente: scrivendo o a voce
@@ -668,8 +764,8 @@ async function appendText(t) {
     ta.value = before + ins + after; caret += ins.length;
   } else ta.value = ta.value.trim() ? ta.value.trim().replace(/[.!?]?$/, m => m || '.') + ' ' + t : t;
   if (isList()) {
-    const have = new Set((current.items || []).map(i => i.t.toLowerCase()));
-    current.items = [...(current.items || []), ...Smart.parseList(t).filter(x => !have.has(x.toLowerCase())).map(x => ({ t: x, done: false }))];
+    const have = new Set(liveItems(current).map(i => i.t.toLowerCase()));
+    current.items = [...(current.items || []), ...Smart.parseList(t).filter(x => !have.has(x.toLowerCase())).map(x => mkItem(x))];
   }
   syncFromForm(); renderChecklist(); renderEvent();
   await saveNote(current);
@@ -679,7 +775,7 @@ $('addItemForm').onsubmit = async e => {
   const v = $('addItem').value.trim(); if (!v) return;
   $('addItem').value = '';
   if (isList()) {
-    current.items = [...(current.items || []), ...v.split(/[,;]/).map(x => x.trim()).filter(Boolean).map(x => ({ t: x[0].toUpperCase() + x.slice(1), done: false }))];
+    current.items = [...(current.items || []), ...v.split(/[,;]/).map(x => x.trim()).filter(Boolean).map(x => mkItem(x[0].toUpperCase() + x.slice(1)))];
     syncFromForm(); renderChecklist(); await saveNote(current);
   } else await appendText(v);
 };
@@ -699,8 +795,8 @@ async function finishAppend(text, audio) {
 $('noteDlg').addEventListener('close', async () => {
   if (recording && appendMode) await stop();
   // una nota scritta lasciata vuota non viene tenuta
-  if (current?.draft && !current.text?.trim() && !current.title?.trim() && !current.items?.length) {
-    if (await DB.get(current.id)) { await DB.del(current.id); Cloud.markDeleted(current.id); }
+  if (current?.draft && !current.text?.trim() && !current.title?.trim() && !liveItems(current).length && !current.photos?.length) {
+    if (await DB.get(current.id)) { await DB.del(current.id); Cloud.markDeleted(current.id, current.photos); }
     render();
   }
 });
@@ -752,12 +848,14 @@ const exportText = () => `${$('noteTitle').value}\n[${$('noteCat').value}]\n\n${
 
 $('btnSave').onclick = async () => {
   const text = $('noteText').value, category = $('noteCat').value;
-  if (Smart.isShopping(category) && (text !== current.text || !current.items)) {
-    const old = Object.fromEntries((current.items || []).map(i => [i.t.toLowerCase(), i.done]));
-    current.items = Smart.parseList(text).map(t => ({ t, done: !!old[t.toLowerCase()] }));
+  if (Smart.isShopping(category) && !current.shared && (text !== current.text || !current.items)) {
+    const old = new Map(liveItems(current).map(i => [i.t.toLowerCase(), i]));
+    const keep = Smart.parseList(text).map(t => old.get(t.toLowerCase()) || mkItem(t));
+    for (const i of liveItems(current)) if (!keep.includes(i)) { i.del = true; i.u = Date.now(); keep.push(i); }
+    current.items = keep;
   }
   Object.assign(current, { title: $('noteTitle').value.trim() || (text ? makeTitle(text) : 'Nota'), category, text });
-  if (!text.trim() && !current.items?.length && current.draft) return $('noteDlg').close();
+  if (!text.trim() && !liveItems(current).length && !current.photos?.length && current.draft) return $('noteDlg').close();
   delete current.draft;
   await saveNote(current); $('noteDlg').close();
 };
@@ -767,7 +865,7 @@ $('btnRetry').onclick = async () => {
 };
 $('btnDelete').onclick = async () => {
   if (!confirm('Eliminare questa nota?')) return;
-  await DB.del(current.id); Cloud.markDeleted(current.id); $('noteDlg').close(); render();
+  await DB.del(current.id); Cloud.markDeleted(current.id, current.photos); $('noteDlg').close(); render();
 };
 $('btnCopy').onclick = async () => { await navigator.clipboard.writeText(exportText()); alert('Copiato!'); };
 $('btnShare').onclick = async () => {
@@ -892,6 +990,8 @@ function unlock() {
   locked = false; $('lock').classList.add('hidden'); render(); Cloud.sync && Cloud.sync();
   renderWeather();
   setTimeout(askName, Cloud.enabled ? 2500 : 300); // prima lascia arrivare il nome dall'account
+  checkJoinLink();
+  Cloud.watchShared && Cloud.watchShared(() => Cloud.sync());
   if (!localStorage.credId && !localStorage.faceIdAsked && window.PublicKeyCredential) {
     localStorage.faceIdAsked = 1;
     if (confirm('Vuoi sbloccare l\'app con Face ID?')) setupFaceId();
