@@ -11,12 +11,14 @@
 <link rel="icon" href="icon.svg">
 <link rel="apple-touch-icon" href="icon.svg">
 <link rel="stylesheet" href="style.css">
+<script src="theme.js"></script>
 </head>
 <body>
 <div class="bg" aria-hidden="true"></div>
 
 <header class="top">
   <div class="topbar">
+    <button id="navBack" type="button" class="navback hidden">‹ Raccolte</button>
     <div id="today" class="today"></div>
     <div class="topactions">
       <button id="weather" class="pill weather" type="button" aria-label="Meteo"></button>
@@ -51,10 +53,10 @@
     </div>
     <div id="folderView" class="hidden">
       <div class="folderhead">
-        <button id="btnBack" class="pill back">‹ Raccolte</button>
+        <span id="folderCount" class="muted small"></span>
         <span class="headright"><button type="button" class="pill writenew" data-write>✍️ Nuova</button><button id="btnEditCat" type="button" class="pill iconbtn" aria-label="Modifica raccolta">✏️</button></span>
       </div>
-      <h2 id="folderTitle" class="foldertitle"></h2>
+      <h2 id="folderTitle" class="hidden"></h2>
       <ul id="notes" class="notes grouped"></ul>
     </div>
   </section>
@@ -76,8 +78,7 @@
 
   <!-- STATISTICHE -->
   <section id="viewStats" class="view hidden">
-    <h2 class="foldertitle">📊 Statistiche</h2>
-    <div id="statTiles" class="tiles"></div>
+        <div id="statTiles" class="tiles"></div>
     <div class="card statcard"><h3>Ultimi 30 giorni</h3><div id="statDays" class="bars"></div></div>
     <div class="card statcard"><h3>Per raccolta</h3><div id="statCats" class="hbars"></div></div>
     <div class="card statcard">
@@ -88,8 +89,7 @@
 
   <!-- ARCHIVIO -->
   <section id="viewArch" class="view hidden">
-    <h2 class="foldertitle">🗄️ Archivio</h2>
-    <p class="muted small hint">Eventi passati e cose segnate come fatte. Scorri a sinistra per ripristinare o eliminare.</p>
+        <p class="muted small hint">Eventi passati e cose segnate come fatte. Scorri a sinistra per ripristinare o eliminare.</p>
     <ul id="archList" class="notes grouped"></ul>
   </section>
 </main>
@@ -135,7 +135,7 @@
 <dialog id="noteDlg" class="sheet">
   <form method="dialog" class="dlg">
     <div class="sheetbar">
-      <button type="button" id="btnCloseNote" class="link">Chiudi</button>
+      <span class="grabber sheetgrab" aria-hidden="true"></span>
       <select id="noteCat" class="catselect"></select>
       <button type="button" id="btnSave" class="link strong">Fine</button>
     </div>
@@ -209,6 +209,12 @@
 <dialog id="settingsDlg" class="sheet">
   <form method="dialog" class="dlg">
     <h2>Impostazioni</h2>
+    <div class="setgroup">
+      <div class="setrow"><span>Aspetto</span>
+        <div class="seg" id="themeSeg"><button type="button" data-v="">Auto</button><button type="button" data-v="light">Chiaro</button><button type="button" data-v="dark">Scuro</button></div></div>
+      <div class="setrow"><span>Testo</span>
+        <div class="seg" id="sizeSeg"><button type="button" data-v="94%">A−</button><button type="button" data-v="">Normale</button><button type="button" data-v="112%">A+</button><button type="button" data-v="125%">A++</button></div></div>
+    </div>
     <label>Il tuo nome
       <input id="nameInput" placeholder="Es. Jovana" autocomplete="given-name">
     </label>

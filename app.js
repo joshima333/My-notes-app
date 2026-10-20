@@ -293,6 +293,7 @@ async function render() {
   $('folderView').classList.toggle('hidden', !openFolder);
   if (openFolder) {
     $('folderTitle').textContent = `${emoji(openFolder)} ${openFolder}`;
+    { const k = all.filter(n => n.category === openFolder).length; $('folderCount').textContent = k ? `${k} ${k === 1 ? 'nota' : 'note'}` : ''; }
     const list = all.filter(n => n.category === openFolder);
     $('notes').innerHTML = list.length ? list.map(n => noteItem(n)).join('') : '<li class="empty">Nessuna nota qui.<br>Tocca 🎙️ per registrarne una.</li>';
     return;
@@ -457,14 +458,65 @@ document.querySelector('.tabs').onclick = e => {
   currentView = t.dataset.view;
   document.querySelectorAll('.tab').forEach(x => x.classList.toggle('on', x === t));
   for (const v of ['viewNotes', 'viewCal', 'viewStats', 'viewArch']) $(v).classList.toggle('hidden', v !== currentView);
-  closeSwipe(); render(); scrollTo({ top: 0 });
+  closeSwipe(); render(); renderHeader(); scrollTo({ top: 0 });
 };
 
 $('folders').onclick = e => {
   const f = e.target.closest('.folder'); if (!f) return;
-  openFolder = f.dataset.cat; localStorage.selCat = openFolder; fillCats(); render(); scrollTo({ top: 0 });
+  goFolder(f.dataset.cat);
 };
-$('btnBack').onclick = () => { openFolder = null; render(); };
+// ---------- Navigazione: Indietro come su iPhone (freccia, gesto dal bordo, tasto Indietro del telefono) ----------
+function goFolder(c) {
+  openFolder = c; localStorage.selCat = c;
+  history.pushState({ f: c }, '');
+  fillCats(); render(); scrollTo({ top: 0 });
+}
+$('navBack').onclick = () => history.state?.f ? history.back() : (openFolder = null, render());
+function openSheet(d) {
+  if (d.open) return;
+  d.showModal();
+  history.pushState({ ...(history.state || {}), dlg: d.id }, '');
+}
+for (const d of document.querySelectorAll('dialog')) {
+  d.addEventListener('close', () => { if (history.state?.dlg === d.id) history.back(); });
+  // tocco fuori dalla scheda = chiudi
+  d.addEventListener('click', e => { if (e.target === d) d.close(); });
+}
+window.addEventListener('popstate', () => {
+  const st = history.state || {};
+  for (const d of [...document.querySelectorAll('dialog[open]')].reverse()) if (d.id !== st.dlg) d.close();
+  if ((st.f || null) !== openFolder) { openFolder = st.f || null; render(); }
+});
+// gesto: trascina dal bordo sinistro per tornare indietro
+let edge = null;
+document.addEventListener('touchstart', e => {
+  const t = e.touches[0];
+  if (openFolder && currentView === 'viewNotes' && t.clientX < 24 && !document.querySelector('dialog[open]')) edge = { x: t.clientX, y: t.clientY, dx: 0 };
+}, { passive: true });
+document.addEventListener('touchmove', e => {
+  if (!edge) return;
+  const t = e.touches[0]; edge.dx = t.clientX - edge.x;
+  if (Math.abs(t.clientY - edge.y) > 60) { edge = null; $('viewNotes').style.transform = ''; return; }
+  $('viewNotes').style.transform = `translateX(${Math.max(0, edge.dx) * .6}px)`;
+}, { passive: true });
+document.addEventListener('touchend', () => {
+  if (!edge) return;
+  const go = edge.dx > 90; edge = null;
+  $('viewNotes').style.transition = 'transform .2s'; $('viewNotes').style.transform = '';
+  setTimeout(() => $('viewNotes').style.transition = '', 220);
+  if (go) $('navBack').click();
+});
+// schede: trascina verso il basso dalla parte alta per chiudere
+for (const d of document.querySelectorAll('dialog.sheet')) {
+  let y0 = null, dy = 0;
+  d.addEventListener('touchstart', e => { if (d.scrollTop <= 0 && e.target.closest('.sheetbar,.grabber,h2')) { y0 = e.touches[0].clientY; dy = 0; } }, { passive: true });
+  d.addEventListener('touchmove', e => { if (y0 == null) return; dy = Math.max(0, e.touches[0].clientY - y0); d.style.transform = `translateY(${dy}px)`; }, { passive: true });
+  d.addEventListener('touchend', () => {
+    if (y0 == null) return; y0 = null;
+    d.style.transition = 'transform .2s'; d.style.transform = dy > 110 ? 'translateY(100%)' : '';
+    setTimeout(() => { d.style.transition = ''; if (dy > 110) { d.close(); d.style.transform = ''; } }, 200);
+  });
+}
 const openFromList = async e => {
   const li = e.target.closest('li'); if (!li) return;
   if (e.target.closest('.sdel')) return deleteWithUndo(li);
@@ -550,7 +602,7 @@ function openMove(id) {
   moveId = id;
   $('moveList').innerHTML = settings.cats.map(c =>
     `<button type="button" class="chip" style="--h:${hue(c)}" data-cat="${esc(c)}">${emoji(c)} ${esc(c)}</button>`).join('');
-  $('moveDlg').showModal();
+  openSheet($('moveDlg'));
 }
 $('moveList').onclick = async e => {
   const b = e.target.closest('[data-cat]'); if (!b) return;
@@ -575,7 +627,7 @@ function openCatEditor(c) {
   $('catName').value = c; $('catEmoji').value = emoji(c);
   $('emojiGrid').innerHTML = EMOJIS.map(e => `<button type="button">${e}</button>`).join('');
   renderColors();
-  $('catDlg').showModal();
+  openSheet($('catDlg'));
 }
 function renderColors() {
   $('colorGrid').innerHTML = [250, 220, 200, 180, 160, 120, 50, 30, 0, 340, 320, 280].map(h =>
@@ -644,7 +696,7 @@ function openNote(n) {
   caret = null;
   $('addItem').placeholder = isList() ? 'Aggiungi alla lista…' : 'Aggiungi testo…';
   $('appendLive').classList.add('hidden');
-  $('noteDlg').showModal();
+  openSheet($('noteDlg'));
 }
 // ---------- Foto ----------
 async function compressImage(file, max = 1600) {
@@ -688,7 +740,7 @@ $('photos').onclick = e => {
   const b = e.target.closest('.ph'); if (!b) return;
   viewing = (current.photos || []).find(p => p.id === b.dataset.p); if (!viewing?.blob) return;
   $('viewerImg').src = URL.createObjectURL(viewing.blob);
-  $('viewer').showModal();
+  openSheet($('viewer'));
 };
 $('viewerClose').onclick = () => $('viewer').close();
 $('viewer').addEventListener('close', () => URL.revokeObjectURL($('viewerImg').src));
@@ -794,6 +846,10 @@ async function finishAppend(text, audio) {
 }
 $('noteDlg').addEventListener('close', async () => {
   if (recording && appendMode) await stop();
+  // chiudere (Fine, tocco fuori, trascinamento, Indietro) salva sempre le modifiche
+  const changed = current && ($('noteTitle').value !== (current.title || '') || $('noteText').value !== (current.text || '') || $('noteCat').value !== current.category);
+  if (!closeHandled && changed) await saveCurrentFromForm();
+  closeHandled = false;
   // una nota scritta lasciata vuota non viene tenuta
   if (current?.draft && !current.text?.trim() && !current.title?.trim() && !liveItems(current).length && !current.photos?.length) {
     if (await DB.get(current.id)) { await DB.del(current.id); Cloud.markDeleted(current.id, current.photos); }
@@ -807,10 +863,9 @@ function setToolLabels() {
 $('btnDone').onclick = async () => {
   syncFromForm(); delete current.draft;
   await setArchived(current, !current.archived);
-  $('noteDlg').close();
+  closeHandled = true; $('noteDlg').close();
   showToast(current.archived ? 'Archiviata ✓' : 'Ripristinata');
 };
-$('btnCloseNote').onclick = () => $('noteDlg').close();
 $('btnPinNote').onclick = async () => {
   syncFromForm(); current.pinned = !current.pinned;
   setToolLabels();
@@ -846,7 +901,8 @@ $('btnLoadAudio').onclick = async () => {
 };
 const exportText = () => `${$('noteTitle').value}\n[${$('noteCat').value}]\n\n${$('noteText').value}`;
 
-$('btnSave').onclick = async () => {
+let closeHandled = false;
+async function saveCurrentFromForm() {
   const text = $('noteText').value, category = $('noteCat').value;
   if (Smart.isShopping(category) && !current.shared && (text !== current.text || !current.items)) {
     const old = new Map(liveItems(current).map(i => [i.t.toLowerCase(), i]));
@@ -855,17 +911,18 @@ $('btnSave').onclick = async () => {
     current.items = keep;
   }
   Object.assign(current, { title: $('noteTitle').value.trim() || (text ? makeTitle(text) : 'Nota'), category, text });
-  if (!text.trim() && !liveItems(current).length && !current.photos?.length && current.draft) return $('noteDlg').close();
+  if (!text.trim() && !liveItems(current).length && !current.photos?.length && current.draft) return;
   delete current.draft;
-  await saveNote(current); $('noteDlg').close();
-};
+  await saveNote(current);
+}
+$('btnSave').onclick = async () => { closeHandled = true; await saveCurrentFromForm(); $('noteDlg').close(); };
 $('btnRetry').onclick = async () => {
   Object.assign(current, { pending: true, failed: false, attempts: 0 });
   await saveNote(current); $('noteDlg').close(); transcribe(current);
 };
 $('btnDelete').onclick = async () => {
   if (!confirm('Eliminare questa nota?')) return;
-  await DB.del(current.id); Cloud.markDeleted(current.id, current.photos); $('noteDlg').close(); render();
+  await DB.del(current.id); Cloud.markDeleted(current.id, current.photos); closeHandled = true; $('noteDlg').close(); render();
 };
 $('btnCopy').onclick = async () => { await navigator.clipboard.writeText(exportText()); alert('Copiato!'); };
 $('btnShare').onclick = async () => {
@@ -889,9 +946,20 @@ function openSettings() {
   $('accountBox').classList.toggle('hidden', !Cloud.enabled);
   $('btnLogout').classList.toggle('hidden', !Cloud.enabled);
   $('accountEmail').textContent = Cloud.email;
-  $('settingsDlg').showModal();
+  paintSegs();
+  openSheet($('settingsDlg'));
 }
 $('btnSettings').onclick = openSettings;
+// Aspetto e dimensione testo
+function paintSegs() {
+  for (const [id, key] of [['themeSeg', 'theme'], ['sizeSeg', 'fontSize']])
+    $(id).querySelectorAll('button').forEach(b => b.classList.toggle('on', b.dataset.v === (localStorage[key] || '')));
+}
+function segHandler(key, apply) {
+  return e => { const b = e.target.closest('button'); if (!b) return; localStorage[key] = b.dataset.v; apply(b.dataset.v); paintSegs(); };
+}
+$('themeSeg').onclick = segHandler('theme', v => { if (v) document.documentElement.dataset.theme = v; else delete document.documentElement.dataset.theme; });
+$('sizeSeg').onclick = segHandler('fontSize', v => document.documentElement.style.setProperty('--fs', v || '100%'));
 $('btnSaveSettings').onclick = () => {
   settings.model = $('model').value;
   localStorage.name = $('nameInput').value.trim();
@@ -915,9 +983,12 @@ Cloud.onStatus = (s, msg) => {
 };
 
 // ---------- Saluto, data, meteo ----------
+const VIEW_TITLES = { viewCal: 'Calendario', viewStats: 'Statistiche', viewArch: 'Archivio' };
 function renderHeader() {
-  const name = localStorage.name;
-  $('hello').textContent = name ? `Ciao, ${name} 👋` : 'Ciao 👋';
+  const name = localStorage.name, inFolder = currentView === 'viewNotes' && openFolder;
+  $('hello').textContent = inFolder ? `${emoji(openFolder)} ${openFolder}` : VIEW_TITLES[currentView] || (name ? `Ciao, ${name} 👋` : 'Ciao 👋');
+  $('navBack').classList.toggle('hidden', !inFolder);
+  $('today').classList.toggle('hidden', !!inFolder);
   const d = new Date().toLocaleDateString('it-IT', { weekday: 'long', day: 'numeric', month: 'long' });
   $('today').textContent = d[0].toUpperCase() + d.slice(1);
 }
