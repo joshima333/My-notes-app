@@ -97,7 +97,7 @@ const Cloud = (() => {
   };
 
   const pick = n => ({ created: n.created, category: n.category, title: n.title, text: n.text,
-    duration: n.duration, pending: !!n.pending, failed: !!n.failed, mime: n.audio?.type || n.mime || '', items: n.items || null, pinned: !!n.pinned });
+    duration: n.duration, pending: !!n.pending, failed: !!n.failed, mime: n.audio?.type || n.mime || '', items: n.items || null, pinned: !!n.pinned, archived: !!n.archived, done: !!n.done, keepActive: !!n.keepActive });
 
   async function sync() {
     if (!key || !user || !navigator.onLine) return;

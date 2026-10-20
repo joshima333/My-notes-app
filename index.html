@@ -13,84 +13,140 @@
 <link rel="stylesheet" href="style.css">
 </head>
 <body>
-<header>
-  <div class="hello">
-    <h1 id="hello">Ciao 👋</h1>
+<div class="bg" aria-hidden="true"></div>
+
+<header class="top">
+  <div class="topbar">
     <div id="today" class="today"></div>
+    <div class="topactions">
+      <button id="weather" class="pill weather" type="button" aria-label="Meteo"></button>
+      <button id="btnSettings" class="pill iconbtn" aria-label="Impostazioni">⚙️</button>
+    </div>
   </div>
-  <button id="weather" class="weather" type="button" aria-label="Meteo"></button>
-  <button id="btnSettings" class="icon" aria-label="Impostazioni">⚙️</button>
+  <h1 id="hello" class="largetitle">Ciao 👋</h1>
 </header>
 
 <main>
-  <section id="recorder" class="card">
-    <div id="chips" class="chips" role="radiogroup" aria-label="Raccolta"></div>
-    <button id="btnRec" class="rec">● Registra</button>
-    <button id="btnWrite" type="button" class="writebtn">✍️ Scrivi una nota</button>
-    <div id="timer" class="muted">00:00</div>
-    <div id="live" class="live"></div>
-    <p id="status" class="status hidden"></p>
-  </section>
+  <p id="status" class="banner hidden"></p>
 
-  <section id="home">
-    <input id="search" type="search" placeholder="Cerca in tutte le note…">
-    <div class="sectionhead"><h2>Raccolte</h2><span id="syncIcon" class="syncpill hidden"></span></div>
-    <div id="folders" class="folders"></div>
-    <ul id="results" class="notes hidden"></ul>
-  </section>
-
-  <section id="folderView" class="hidden">
-    <div class="folderhead">
-      <button id="btnBack" class="back">‹ Raccolte</button>
-      <h2 id="folderTitle"></h2>
-      <button id="btnEditCat" type="button" class="back editcat" aria-label="Modifica raccolta">✏️</button>
+  <!-- NOTE -->
+  <section id="viewNotes" class="view">
+    <div id="home">
+      <div class="searchwrap"><input id="search" type="search" placeholder="Cerca"></div>
+      <div id="upcoming" class="upcoming hidden"></div>
+      <div class="sectionhead"><h2>Raccolte</h2><span id="syncIcon" class="syncpill hidden"></span></div>
+      <div id="folders" class="folders"></div>
+      <ul id="results" class="notes grouped hidden"></ul>
     </div>
-    <ul id="notes" class="notes"></ul>
+    <div id="folderView" class="hidden">
+      <div class="folderhead">
+        <button id="btnBack" class="pill back">‹ Raccolte</button>
+        <button id="btnEditCat" type="button" class="pill iconbtn" aria-label="Modifica raccolta">✏️</button>
+      </div>
+      <h2 id="folderTitle" class="foldertitle"></h2>
+      <ul id="notes" class="notes grouped"></ul>
+    </div>
+  </section>
+
+  <!-- CALENDARIO -->
+  <section id="viewCal" class="view hidden">
+    <div class="calhead">
+      <button id="calPrev" class="pill iconbtn" aria-label="Mese precedente">‹</button>
+      <h2 id="calTitle"></h2>
+      <button id="calNext" class="pill iconbtn" aria-label="Mese successivo">›</button>
+    </div>
+    <div class="card calcard">
+      <div class="calweek"><span>L</span><span>M</span><span>M</span><span>G</span><span>V</span><span>S</span><span>D</span></div>
+      <div id="calGrid" class="calgrid"></div>
+    </div>
+    <h3 id="calDayTitle" class="daytitle"></h3>
+    <ul id="calList" class="notes grouped"></ul>
+  </section>
+
+  <!-- ARCHIVIO -->
+  <section id="viewArch" class="view hidden">
+    <h2 class="foldertitle">🗄️ Archivio</h2>
+    <p class="muted small hint">Eventi passati e cose segnate come fatte. Scorri a sinistra per ripristinare o eliminare.</p>
+    <ul id="archList" class="notes grouped"></ul>
   </section>
 </main>
 
+<!-- Barra in basso -->
+<nav class="tabbar" role="tablist">
+  <div class="tabs">
+    <button class="tab on" data-view="viewNotes" role="tab"><span class="ti"><svg viewBox="0 0 24 24" width="24" height="24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="4" y="3" width="16" height="18" rx="3"/><path d="M8 8h8M8 12h8M8 16h5"/></svg></span><span>Note</span></button>
+    <button class="tab" data-view="viewCal" role="tab"><span class="ti"><svg viewBox="0 0 24 24" width="24" height="24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="5" width="18" height="16" rx="3"/><path d="M3 10h18M8 3v4M16 3v4"/><circle cx="12" cy="15" r="1.3" fill="currentColor"/></svg></span><span>Calendario</span></button>
+    <button class="tab" data-view="viewArch" role="tab"><span class="ti"><svg viewBox="0 0 24 24" width="24" height="24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="4" width="18" height="5" rx="1.5"/><path d="M5 9v9a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V9M10 13h4"/></svg></span><span>Archivio</span></button>
+  </div>
+  <button id="btnRec" class="fab" aria-label="Registra"><span class="mic"><svg viewBox="0 0 24 24" width="28" height="28" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="9" y="3" width="6" height="11" rx="3" fill="currentColor"/><path d="M5.5 11a6.5 6.5 0 0 0 13 0M12 17.5V21"/></svg></span></button>
+</nav>
+
+<!-- Pannello registrazione -->
+<div id="recSheet" class="recsheet hidden">
+  <div class="sheetcard">
+    <div class="grabber"></div>
+    <div class="muted small center">Salva in</div>
+    <div id="chips" class="chips" role="radiogroup" aria-label="Raccolta"></div>
+    <div class="recvisual"><span class="ring r1"></span><span class="ring r2"></span><span class="dot">🎙️</span></div>
+    <div id="timer" class="timer">00:00</div>
+    <div id="live" class="live"></div>
+    <div class="recactions">
+      <button id="btnWrite" type="button" class="pill">✍️ Scrivi</button>
+      <button id="btnStop" type="button" class="stopbtn" aria-label="Stop">■</button>
+      <span class="spacer"></span>
+    </div>
+  </div>
+</div>
+
 <div id="toast" class="toast hidden" role="status">Nota eliminata <button type="button" id="btnUndo">Annulla</button></div>
 
-<dialog id="noteDlg">
+<dialog id="noteDlg" class="sheet">
   <form method="dialog" class="dlg">
-    <input id="noteTitle" placeholder="Titolo">
-    <select id="noteCat"></select>
+    <div class="sheetbar">
+      <button type="button" id="btnCloseNote" class="link">Chiudi</button>
+      <select id="noteCat" class="catselect"></select>
+      <button type="button" id="btnSave" class="link strong">Fine</button>
+    </div>
+    <input id="noteTitle" class="titleinput" placeholder="Titolo">
+    <div id="noteMeta" class="muted small"></div>
     <audio id="noteAudio" controls class="hidden"></audio>
     <button type="button" id="btnLoadAudio" class="hidden">🔊 Scarica audio</button>
     <div id="eventBox" class="eventbox hidden">
-      <div class="evtitle">📅 <b id="evTitle"></b></div>
-      <div id="evWhen" class="muted small"></div>
-      <div class="row left">
-        <button type="button" data-cal="google">Google</button>
-        <button type="button" data-cal="outlook">Outlook</button>
-        <button type="button" data-cal="apple">Apple</button>
+      <div class="evicon">📅</div>
+      <div class="evbody">
+        <b id="evTitle"></b>
+        <div id="evWhen" class="muted small"></div>
+        <div class="evbtns">
+          <span class="muted small">Aggiungi a</span>
+          <button type="button" data-cal="google">Google</button>
+          <button type="button" data-cal="outlook">Outlook</button>
+          <button type="button" data-cal="apple">Apple</button>
+        </div>
       </div>
     </div>
     <ul id="checklist" class="checklist hidden"></ul>
+    <textarea id="noteText" rows="7" placeholder="Scrivi qui…"></textarea>
     <div class="addrow">
       <input id="addItem" form="addItemForm" placeholder="Aggiungi…" enterkeyhint="done">
       <button type="submit" form="addItemForm" class="addbtn" aria-label="Aggiungi">＋</button>
+      <button type="button" id="btnAppendRec" class="addbtn mic" aria-label="Aggiungi a voce">🎙️</button>
     </div>
-    <button type="button" id="btnAppendRec" class="appendrec">🎙️ Aggiungi a voce</button>
     <div id="appendLive" class="live appendlive hidden"></div>
-    <textarea id="noteText" rows="8"></textarea>
-    <div class="row">
-      <button type="button" id="btnPinNote">📌 Fissa</button>
-      <button type="button" id="btnRetry" class="hidden">🔁 Riprova trascrizione</button>
-      <button type="button" id="btnCopy">📋 Copia</button>
-      <button type="button" id="btnShare">📤 Condividi</button>
-      <button type="button" id="btnDownload">⬇️ .txt</button>
-    </div>
-    <div class="row">
-      <button type="button" id="btnDelete" class="danger">🗑️ Elimina</button>
-      <button type="button" id="btnSave" class="primary">Salva</button>
+    <button type="button" id="btnRetry" class="hidden">🔁 Riprova trascrizione</button>
+    <div class="toolbar">
+      <button type="button" id="btnDone" class="tool"><span>✓</span><small>Fatto</small></button>
+      <button type="button" id="btnPinNote" class="tool"><span>📌</span><small>Fissa</small></button>
+      <button type="button" id="btnShare" class="tool"><span>📤</span><small>Condividi</small></button>
+      <button type="button" id="btnCopy" class="tool"><span>📋</span><small>Copia</small></button>
+      <button type="button" id="btnDownload" class="tool"><span>⬇️</span><small>.txt</small></button>
+      <button type="button" id="btnDelete" class="tool danger"><span>🗑️</span><small>Elimina</small></button>
     </div>
   </form>
 </dialog>
 
 <form id="addItemForm" hidden></form>
 
-<dialog id="moveDlg">
+<dialog id="moveDlg" class="sheet">
   <form method="dialog" class="dlg">
     <h2>Sposta in…</h2>
     <div id="moveList" class="movelist"></div>
@@ -98,7 +154,7 @@
   </form>
 </dialog>
 
-<dialog id="catDlg">
+<dialog id="catDlg" class="sheet">
   <form method="dialog" class="dlg">
     <h2>Modifica raccolta</h2>
     <label>Nome <input id="catName" maxlength="30"></label>
@@ -114,7 +170,7 @@
   </form>
 </dialog>
 
-<dialog id="settingsDlg">
+<dialog id="settingsDlg" class="sheet">
   <form method="dialog" class="dlg">
     <h2>Impostazioni</h2>
     <label>Il tuo nome

@@ -11,9 +11,9 @@ const settings = {
 };
 
 // Ogni modifica fatta dall'utente passa da qui: salva in locale e sincronizza
-async function saveNote(n) {
+async function saveNote(n, quiet) {
   n.updated = Date.now(); n.dirty = true;
-  await DB.put(n); render(); Cloud.schedule();
+  await DB.put(n); if (!quiet) render(); Cloud.schedule();
 }
 
 // ---------- Raccolte ----------
@@ -63,7 +63,7 @@ async function checkLocalSR() {
 }
 const setStatus = t => { $('status').textContent = t; $('status').classList.toggle('hidden', !t); };
 
-let appendMode = false;
+let appendMode = false, discardRec = false;
 const liveEl = () => appendMode ? $('appendLive') : $('live');
 const recBtn = () => appendMode ? $('btnAppendRec') : $('btnRec');
 let rec = null, media = null, chunks = [], finalText = '', lastInterim = '', recording = false, t0 = 0, tick;
@@ -119,16 +119,17 @@ async function start() {
     const s = Math.floor((Date.now() - t0) / 1000);
     $('timer').textContent = `${String(s / 60 | 0).padStart(2, '0')}:${String(s % 60).padStart(2, '0')}`;
   }, 500);
-  recBtn().textContent = '■ Stop';
   recBtn().classList.add('on');
   liveEl().classList.remove('hidden');
+  if (!appendMode) { $('recSheet').classList.remove('hidden'); fillCats(); }
 }
 
 async function stop() {
   recording = false;
   clearInterval(tick);
-  recBtn().textContent = appendMode ? '🎙️ Aggiungi a voce' : '● Registra';
   recBtn().classList.remove('on');
+  $('recSheet').classList.add('hidden');
+  $('timer').textContent = '00:00';
   if (rec) { const r = rec; rec = null; r.onend = flushInterim; r.stop(); }
   let audio = null;
   if (media) {
@@ -142,6 +143,7 @@ async function stop() {
   const text = finalText.trim();
   liveEl().innerHTML = '';
   if (appendMode) { appendMode = false; return finishAppend(text, audio); }
+  if (discardRec) { discardRec = false; return; }
   if (!text && !audio) return;
   const pending = !text && !!audio;
   const items = Smart.isShopping(selCat()) && text ? Smart.parseList(text).map(t => ({ t, done: false })) : null;
@@ -231,14 +233,15 @@ async function nextJob() {
 }
 
 $('btnRec').onclick = () => recording ? stop() : start();
+$('btnStop').onclick = () => recording && stop();
 
 // ---------- Home: cartelle / ricerca / raccolta aperta ----------
 let openFolder = null;
 const fmtDate = t => new Date(t).toLocaleString('it-IT', { dateStyle: 'short', timeStyle: 'short' });
 const noteItem = (n, showCat) => `
-  <li data-id="${n.id}" class="swipe" style="--h:${hue(n.category)}">
+  <li data-id="${n.id}" class="swipe${n.done ? ' done' : ''}" style="--h:${hue(n.category)}">
     <button type="button" class="smove" tabindex="-1">Sposta</button>
-    <button type="button" class="sdel" tabindex="-1">Elimina</button>
+    <span class="sacts"><button type="button" class="sdone" tabindex="-1">${n.archived ? 'Ripristina' : 'Fatto'}</button><button type="button" class="sdel" tabindex="-1">Elimina</button></span>
     <div class="sc">
     <div class="meta">${showCat ? `<span class="tag">${emoji(n.category)} ${esc(n.category)}</span>` : ''}
       ${n.pinned ? '<span>📌</span>' : ''}<span>${fmtDate(n.created)}</span>${n.audio || n.hasAudio ? '<span>🔊</span>' : ''}</div>
@@ -255,37 +258,124 @@ function notePreview(n) {
   return (ev ? `📅 ${esc(Smart.fmtEvent(ev))} · ` : '') + esc(Smart.preview(n.text));
 }
 
+// Evento collegato a una nota (data calcolata rispetto al giorno in cui è stata creata)
+const noteEvent = n => n.text ? Smart.parseEvent(n.text, new Date(n.created)) : null;
+const startOfToday = () => { const d = new Date(); d.setHours(0, 0, 0, 0); return d; };
+
+// Archivia da sola gli eventi già passati (dal giorno dopo)
+async function autoArchive(all) {
+  const today = startOfToday();
+  for (const n of all) {
+    if (n.archived || n.keepActive) continue;
+    const ev = noteEvent(n);
+    if (ev && ev.start < today) { n.archived = true; await saveNote(n, true); }
+  }
+}
+
 async function render() {
   if (locked) return;
-  const all = (await DB.all()).sort((a, b) => (!!b.pinned - !!a.pinned) || b.created - a.created);
+  const every = await DB.all();
+  await autoArchive(every);
+  const sorted = every.sort((a, b) => (!!b.pinned - !!a.pinned) || b.created - a.created);
+  const all = sorted.filter(n => !n.archived);
+  renderHeader();
+  renderUpcoming(all);
+  if (currentView === 'viewCal') renderCalendar(every);
+  if (currentView === 'viewArch') renderArchive(sorted.filter(n => n.archived));
   const q = $('search').value.trim().toLowerCase();
   $('home').classList.toggle('hidden', !!openFolder);
   $('folderView').classList.toggle('hidden', !openFolder);
   if (openFolder) {
     $('folderTitle').textContent = `${emoji(openFolder)} ${openFolder}`;
     const list = all.filter(n => n.category === openFolder);
-    $('notes').innerHTML = list.length ? list.map(n => noteItem(n)).join('') : '<p class="muted empty">Nessuna nota in questa raccolta.</p>';
+    $('notes').innerHTML = list.length ? list.map(n => noteItem(n)).join('') : '<li class="empty">Nessuna nota qui.<br>Tocca 🎙️ per registrarne una.</li>';
     return;
   }
   $('results').classList.toggle('hidden', !q);
   $('folders').classList.toggle('hidden', !!q);
+  $('upcoming').classList.toggle('hidden', !!q || !$('upcoming').innerHTML);
   if (q) {
-    const list = all.filter(n => (n.title + ' ' + n.text).toLowerCase().includes(q));
-    $('results').innerHTML = list.length ? list.map(n => noteItem(n, true)).join('') : '<p class="muted empty">Nessun risultato.</p>';
+    const list = sorted.filter(n => (n.title + ' ' + n.text).toLowerCase().includes(q));
+    $('results').innerHTML = list.length ? list.map(n => noteItem(n, true)).join('') : '<li class="empty">Nessun risultato.</li>';
     return;
   }
   const cats = [...settings.cats, ...new Set(all.map(n => n.category).filter(c => !settings.cats.includes(c)))];
-  renderHeader();
   $('folders').innerHTML = cats.map(c => {
     const list = all.filter(n => n.category === c);
     return `<button type="button" class="folder" data-cat="${esc(c)}" style="--h:${hue(c)}">
-      <span class="femoji">${emoji(c)}</span>
+      <span class="ficon">${emoji(c)}</span>
+      <span class="fcount">${list.length}</span>
       <span class="fname">${esc(c)}</span>
-      <span class="fcount">${list.length} ${list.length === 1 ? 'nota' : 'note'}</span>
-      <span class="flast">${list[0] ? esc(list[0].title) : '&nbsp;'}</span>
+      <span class="flast">${list[0] ? esc(list[0].title) : 'Vuota'}</span>
     </button>`;
   }).join('');
 }
+
+// ---------- Prossimi eventi ----------
+const dayShort = d => d.toLocaleDateString('it-IT', { weekday: 'short' }).replace('.', '');
+function eventRow(n, ev) {
+  const time = ev.allDay ? 'Tutto il giorno' : ev.start.toLocaleTimeString('it-IT', { hour: '2-digit', minute: '2-digit' });
+  return `<div class="uprow" data-id="${n.id}" style="--h:${hue(n.category)}">
+    <div class="update"><small>${dayShort(ev.start)}</small><b>${ev.start.getDate()}</b></div>
+    <div class="uptext"><b>${esc(ev.title)}</b><span class="muted small">${time} · ${emoji(n.category)} ${esc(n.category)}</span></div>
+  </div>`;
+}
+function renderUpcoming(all) {
+  const today = startOfToday();
+  const evs = all.map(n => [n, noteEvent(n)]).filter(([, e]) => e && e.start >= today).sort((a, b) => a[1].start - b[1].start).slice(0, 3);
+  $('upcoming').innerHTML = evs.length ? '<h3>Prossimi eventi</h3>' + evs.map(([n, e]) => eventRow(n, e)).join('') : '';
+  $('upcoming').classList.toggle('hidden', !evs.length);
+}
+$('upcoming').onclick = async e => { const r = e.target.closest('.uprow'); if (r) openNote(await DB.get(r.dataset.id)); };
+
+// ---------- Calendario ----------
+let calMonth = new Date(); calMonth.setDate(1);
+let calSel = startOfToday();
+const sameDay = (a, b) => a.getFullYear() === b.getFullYear() && a.getMonth() === b.getMonth() && a.getDate() === b.getDate();
+function renderCalendar(every) {
+  const evs = every.map(n => [n, noteEvent(n)]).filter(([, e]) => e);
+  $('calTitle').textContent = calMonth.toLocaleDateString('it-IT', { month: 'long', year: 'numeric' });
+  const first = new Date(calMonth), offset = (first.getDay() + 6) % 7;
+  const start = new Date(first); start.setDate(1 - offset);
+  const today = startOfToday();
+  let html = '';
+  for (let i = 0; i < 42; i++) {
+    const d = new Date(start); d.setDate(start.getDate() + i);
+    if (i >= 35 && d.getMonth() !== calMonth.getMonth()) break;
+    const dayEvs = evs.filter(([, e]) => sameDay(e.start, d));
+    const cls = [d.getMonth() !== calMonth.getMonth() && 'other', sameDay(d, today) && 'today', sameDay(d, calSel) && 'sel'].filter(Boolean).join(' ');
+    html += `<button type="button" class="${cls}" data-d="${d.getTime()}"><span>${d.getDate()}</span><span class="dots">${dayEvs.slice(0, 3).map(([n]) => `<i style="--h:${hue(n.category)}"></i>`).join('')}</span></button>`;
+  }
+  $('calGrid').innerHTML = html;
+  const sel = evs.filter(([, e]) => sameDay(e.start, calSel)).sort((a, b) => a[1].start - b[1].start);
+  const t = calSel.toLocaleDateString('it-IT', { weekday: 'long', day: 'numeric', month: 'long' });
+  $('calDayTitle').textContent = t[0].toUpperCase() + t.slice(1);
+  $('calList').innerHTML = sel.length ? sel.map(([n]) => noteItem(n, true)).join('') : '<li class="empty">Nessun evento in questo giorno.</li>';
+}
+$('calGrid').onclick = e => { const b = e.target.closest('[data-d]'); if (!b) return; calSel = new Date(+b.dataset.d); if (calSel.getMonth() !== calMonth.getMonth()) calMonth = new Date(calSel.getFullYear(), calSel.getMonth(), 1); render(); };
+$('calPrev').onclick = () => { calMonth = new Date(calMonth.getFullYear(), calMonth.getMonth() - 1, 1); render(); };
+$('calNext').onclick = () => { calMonth = new Date(calMonth.getFullYear(), calMonth.getMonth() + 1, 1); render(); };
+
+// ---------- Archivio ----------
+function renderArchive(list) {
+  $('archList').innerHTML = list.length ? list.map(n => noteItem(n, true)).join('') : '<li class="empty">L\'archivio è vuoto.</li>';
+}
+async function setArchived(n, on) {
+  n.archived = on; n.done = on; n.keepActive = !on;
+  await saveNote(n);
+}
+
+// ---------- Schede in basso ----------
+let currentView = 'viewNotes';
+document.querySelector('.tabs').onclick = e => {
+  const t = e.target.closest('.tab'); if (!t) return;
+  if (t.dataset.view === currentView && currentView === 'viewNotes') { openFolder = null; $('search').value = ''; }
+  currentView = t.dataset.view;
+  document.querySelectorAll('.tab').forEach(x => x.classList.toggle('on', x === t));
+  for (const v of ['viewNotes', 'viewCal', 'viewArch']) $(v).classList.toggle('hidden', v !== currentView);
+  closeSwipe(); render(); scrollTo({ top: 0 });
+};
+
 $('folders').onclick = e => {
   const f = e.target.closest('.folder'); if (!f) return;
   openFolder = f.dataset.cat; localStorage.selCat = openFolder; fillCats(); render(); scrollTo({ top: 0 });
@@ -294,24 +384,25 @@ $('btnBack').onclick = () => { openFolder = null; render(); };
 const openFromList = async e => {
   const li = e.target.closest('li'); if (!li) return;
   if (e.target.closest('.sdel')) return deleteWithUndo(li);
+  if (e.target.closest('.sdone')) { const n = await DB.get(li.dataset.id); closeSwipe(); return setArchived(n, !n.archived); }
   if (e.target.closest('.smove')) { closeSwipe(); return openMove(li.dataset.id); }
   if (Date.now() - justSwiped < 400) return;
   if (openSwipe) return closeSwipe();            // tocco su una riga aperta = chiudi
   openNote(await DB.get(li.dataset.id));
 };
-$('notes').onclick = $('results').onclick = openFromList;
+$('notes').onclick = $('results').onclick = $('calList').onclick = $('archList').onclick = openFromList;
 
 // ---------- Scorri: a sinistra Elimina, a destra Sposta (stile iPhone) ----------
-const BTN_W = 92, FULL = 0.55;
+const BTN_W = 92, ACT_W = 168, FULL = 0.6;
 let sw = null, openSwipe = null, openX = 0, justSwiped = 0;
 const setX = (li, x, anim) => {
-  const sc = li.querySelector('.sc'), del = li.querySelector('.sdel'), mv = li.querySelector('.smove');
+  const sc = li.querySelector('.sc'), del = li.querySelector('.sacts'), mv = li.querySelector('.smove');
   sc.style.transition = del.style.transition = mv.style.transition = anim ? 'transform .25s ease, width .25s ease' : 'none';
   sc.style.transform = `translateX(${x}px)`;
   del.style.width = `${Math.max(0, -x)}px`; mv.style.width = `${Math.max(0, x)}px`;
   li.classList.toggle('full', Math.abs(x) > li.offsetWidth * FULL);
 };
-function closeSwipe() { if (openSwipe) setX(openSwipe, 0, true); openSwipe = null; openX = 0; }
+function closeSwipe() { if (openSwipe) { setX(openSwipe, 0, true); openSwipe.classList.remove('open'); } openSwipe = null; openX = 0; }
 function onTouchStart(e) {
   const li = e.target.closest('li.swipe'); if (!li) return;
   if (openSwipe && openSwipe !== li) closeSwipe();
@@ -334,10 +425,10 @@ function onTouchEnd() {
   const full = Math.abs(dx) > li.offsetWidth * FULL;
   if (full && dx < 0) return deleteWithUndo(li);
   if (full && dx > 0) { closeSwipe(); setX(li, 0, true); return openMove(li.dataset.id); }
-  if (Math.abs(dx) > BTN_W / 2) { openX = dx < 0 ? -BTN_W : BTN_W; setX(li, openX, true); openSwipe = li; }
+  if (Math.abs(dx) > BTN_W / 2) { openX = dx < 0 ? -ACT_W : BTN_W; setX(li, openX, true); openSwipe = li; li.classList.add('open'); }
   else { setX(li, 0, true); openSwipe = null; openX = 0; }
 }
-for (const id of ['notes', 'results']) {
+for (const id of ['notes', 'results', 'calList', 'archList']) {
   $(id).addEventListener('touchstart', onTouchStart, { passive: true });
   $(id).addEventListener('touchmove', onTouchMove, { passive: false });
   $(id).addEventListener('touchend', onTouchEnd);
@@ -361,6 +452,12 @@ async function deleteWithUndo(li) {
   $('toast').classList.remove('hidden');
 }
 $('btnUndo').onclick = () => undo && undo.restore();
+let toastT;
+function showToast(msg) {
+  const t = $('toast'); t.firstChild.textContent = msg + ' ';
+  $('btnUndo').classList.add('hidden'); t.classList.remove('hidden');
+  clearTimeout(toastT); toastT = setTimeout(() => { t.classList.add('hidden'); $('btnUndo').classList.remove('hidden'); t.firstChild.textContent = 'Nota eliminata '; }, 1800);
+}
 $('search').oninput = render;
 
 // ---------- Sposta nota ----------
@@ -379,7 +476,8 @@ $('moveList').onclick = async e => {
 };
 
 // ---------- Nota scritta ----------
-$('btnWrite').onclick = () => {
+$('btnWrite').onclick = async () => {
+  if (recording && !appendMode) { discardRec = true; await stop(); }
   openNote({ id: crypto.randomUUID(), created: Date.now(), category: selCat(), title: '', text: '', audio: null, draft: true });
   setTimeout(() => $('noteText').focus(), 150);
 };
@@ -454,7 +552,8 @@ function openNote(n) {
   if (Smart.isShopping(n.category) && !n.items && n.text) n.items = Smart.parseList(n.text).map(t => ({ t, done: false }));
   renderChecklist();
   renderEvent();
-  $('btnPinNote').textContent = n.pinned ? '📍 Sgancia' : '📌 Fissa';
+  setToolLabels();
+  $('noteMeta').textContent = n.draft ? 'Nuova nota' : `${fmtDate(n.created)}${n.archived ? ' · Archiviata' : ''}`;
   caret = null;
   $('addItem').placeholder = isList() ? 'Aggiungi alla lista…' : 'Aggiungi testo alla nota…';
   $('appendLive').classList.add('hidden');
@@ -526,9 +625,20 @@ $('noteDlg').addEventListener('close', async () => {
     render();
   }
 });
+function setToolLabels() {
+  $('btnPinNote').innerHTML = `<span>${current.pinned ? '📍' : '📌'}</span><small>${current.pinned ? 'Sgancia' : 'Fissa'}</small>`;
+  $('btnDone').innerHTML = `<span>${current.archived ? '↩️' : '✓'}</span><small>${current.archived ? 'Ripristina' : 'Fatto'}</small>`;
+}
+$('btnDone').onclick = async () => {
+  syncFromForm(); delete current.draft;
+  await setArchived(current, !current.archived);
+  $('noteDlg').close();
+  showToast(current.archived ? 'Archiviata ✓' : 'Ripristinata');
+};
+$('btnCloseNote').onclick = () => $('noteDlg').close();
 $('btnPinNote').onclick = async () => {
   syncFromForm(); current.pinned = !current.pinned;
-  $('btnPinNote').textContent = current.pinned ? '📍 Sgancia' : '📌 Fissa';
+  setToolLabels();
   await saveNote(current);
 };
 // Inserire nel punto del testo toccato
@@ -659,7 +769,7 @@ function showAuth(msg) {
   $('lock').classList.remove('hidden');
   $('lockForm').classList.add('hidden');
   $('authForm').classList.remove('hidden');
-  $('notes').innerHTML = $('results').innerHTML = $('folders').innerHTML = '';
+  $('notes').innerHTML = $('results').innerHTML = $('folders').innerHTML = $('calList').innerHTML = $('archList').innerHTML = $('upcoming').innerHTML = '';
   if (msg) $('authMsg').textContent = msg;
 }
 async function doAuth(signup) {
@@ -689,7 +799,7 @@ function lock(step) {
   pinStep = step || (localStorage.pinHash ? 'unlock' : 'new');
   $('lockMsg').textContent = pinStep === 'unlock' ? 'Inserisci il PIN' : 'Crea un PIN (4-8 cifre)';
   $('btnFaceId').classList.toggle('hidden', !(pinStep === 'unlock' && localStorage.credId));
-  $('notes').innerHTML = $('results').innerHTML = $('folders').innerHTML = '';
+  $('notes').innerHTML = $('results').innerHTML = $('folders').innerHTML = $('calList').innerHTML = $('archList').innerHTML = $('upcoming').innerHTML = '';
   $('noteDlg').open && $('noteDlg').close();
   $('settingsDlg').open && $('settingsDlg').close();
   $('lock').classList.remove('hidden');
