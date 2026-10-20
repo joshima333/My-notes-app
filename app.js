@@ -482,7 +482,12 @@ function eventRow(o) {
     <div class="uptext"><b>${o.repeat ? '🔁 ' : ''}${esc(o.title)}</b><span class="muted small">${time} · ${esc(o.sub)}</span></div>
   </div>`;
 }
+function renderWelcome(all) {
+  const show = !all.length && !localStorage.welcomeDone;
+  $('welcome').classList.toggle('hidden', !show);
+}
 function renderUpcoming(all) {
+  renderWelcome(all);
   const now = new Date(), end = new Date(now); end.setDate(now.getDate() + 60);
   const evs = eventsBetween(all, startOfToday(), end).filter(o => o.allDay ? o.start >= startOfToday() : o.start >= new Date(now - 3600e3)).slice(0, 3);
   $('upcoming').innerHTML = evs.length ? '<h3>Prossimi eventi</h3>' + evs.map(eventRow).join('') : '';
@@ -562,6 +567,7 @@ async function onEventTap(e) {
   const [t, sub] = r.dataset.ext.split('|'); showToast(`${t} · ${sub}`);
 }
 $('upcoming').onclick = onEventTap;
+$('welcome').onclick = e => { if (e.target.closest('[data-close]')) { localStorage.welcomeDone = 1; $('welcome').classList.add('hidden'); } };
 
 // ---------- Calendario ----------
 let calMonth = new Date(); calMonth.setDate(1);
@@ -620,12 +626,23 @@ $('folders').onclick = e => {
   goFolder(f.dataset.cat);
 };
 // ---------- Navigazione: Indietro come su iPhone (freccia, gesto dal bordo, tasto Indietro del telefono) ----------
+function swipeTip() {
+  if (localStorage.swipeTip) return;
+  localStorage.swipeTip = 1;
+  setTimeout(() => showToast('💡 Scorri una nota: ← Fatto/Elimina · → Sposta'), 600);
+}
 function goFolder(c) {
+  swipeTip();
   openFolder = c; localStorage.selCat = c;
   history.pushState({ f: c }, '');
   fillCats(); render(); scrollTo({ top: 0 });
 }
-$('navBack').onclick = () => history.state?.f ? history.back() : (openFolder = null, render());
+let leavingFolder = false;
+const renamed = {}; // raccolte rinominate: la cronologia usa ancora il vecchio nome
+$('navBack').onclick = () => {
+  if (history.state?.f) { leavingFolder = true; history.back(); }
+  else { openFolder = null; render(); }
+};
 function openSheet(d) {
   if (d.open) return;
   d.showModal();
@@ -638,6 +655,11 @@ for (const d of document.querySelectorAll('dialog')) {
 }
 window.addEventListener('popstate', () => {
   const st = history.state || {};
+  // salta le voci rimaste da schede già chiuse, e continua finché si esce dalla raccolta
+  if (st.dlg && !$(st.dlg)?.open) return history.back();
+  if (leavingFolder && st.f) return history.back();
+  leavingFolder = false;
+  if (st.f && renamed[st.f]) { st.f = renamed[st.f]; history.replaceState(st, ''); }
   for (const d of [...document.querySelectorAll('dialog[open]')].reverse()) if (d.id !== st.dlg) d.close();
   if ((st.f || null) !== openFolder) { openFolder = st.f || null; render(); }
 });
@@ -739,6 +761,7 @@ async function deleteWithUndo(li) {
   const t = setTimeout(() => commit(), 4000);
   const commit = async () => { clearTimeout(t); $('toast').classList.add('hidden'); undo = null; Cloud.markDeleted(id, note?.photos); render(); };
   undo = { commit, restore: async () => { clearTimeout(t); $('toast').classList.add('hidden'); undo = null; await DB.put(note); render(); } };
+  clearTimeout(toastT); $('toast').firstChild.textContent = 'Nota eliminata '; $('btnUndo').classList.remove('hidden');
   $('toast').classList.remove('hidden');
 }
 $('btnUndo').onclick = () => undo && undo.restore();
@@ -746,7 +769,7 @@ let toastT;
 function showToast(msg) {
   const t = $('toast'); t.firstChild.textContent = msg + ' ';
   $('btnUndo').classList.add('hidden'); t.classList.remove('hidden');
-  clearTimeout(toastT); toastT = setTimeout(() => { t.classList.add('hidden'); $('btnUndo').classList.remove('hidden'); t.firstChild.textContent = 'Nota eliminata '; }, 1800);
+  clearTimeout(toastT); toastT = setTimeout(() => { t.classList.add('hidden'); $('btnUndo').classList.remove('hidden'); t.firstChild.textContent = 'Nota eliminata '; }, msg.length > 40 ? 3800 : 1800);
 }
 $('search').oninput = render;
 
@@ -802,6 +825,7 @@ $('btnSaveCat').onclick = async () => {
     for (const n of await DB.all()) if (n.category === editCat) { n.category = name; await saveNote(n); }
     if (localStorage.selCat === editCat) localStorage.selCat = name;
     if (openFolder === editCat) openFolder = name;
+    renamed[editCat] = name;
   }
   $('catDlg').close(); fillCats(); render();
 };
@@ -1154,13 +1178,17 @@ function segHandler(key, apply) {
 }
 $('themeSeg').onclick = segHandler('theme', v => { if (v) document.documentElement.dataset.theme = v; else delete document.documentElement.dataset.theme; });
 $('sizeSeg').onclick = segHandler('fontSize', v => document.documentElement.style.setProperty('--fs', v || '100%'));
-$('btnSaveSettings').onclick = () => {
+// le impostazioni si salvano da sole quando chiudi la scheda
+function applySettings() {
   settings.model = $('model').value;
-  localStorage.name = $('nameInput').value.trim();
+  const name = $('nameInput').value.trim();
+  if (name !== (localStorage.name || '')) { localStorage.name = name; localStorage.catsUpdated = Date.now(); Cloud.schedule(); }
   const cats = $('catsInput').value.split('\n').map(s => s.trim()).filter(Boolean);
-  settings.cats = cats.length ? cats : DEFAULT_CATS;
+  if (JSON.stringify(cats) !== JSON.stringify(settings.cats)) settings.cats = cats.length ? cats : DEFAULT_CATS;
   fillCats(); render();
-};
+}
+$('btnSaveSettings').onclick = () => {};
+$('settingsDlg').addEventListener('close', applySettings);
 $('btnLogout').onclick = async () => {
   if (!confirm('Uscire? Le note restano salvate nel tuo account e le ritrovi quando accedi di nuovo.')) return;
   $('settingsDlg').close();

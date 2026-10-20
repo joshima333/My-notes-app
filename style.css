@@ -385,3 +385,7 @@ label.addbtn{display:grid;place-items:center;cursor:pointer}
   #printView .pphotos{display:flex;flex-wrap:wrap;gap:6pt}
   #printView img{max-width:45%;max-height:180pt;border-radius:6pt}
 }
+/* Benvenuto */
+.welcome{border-radius:var(--r-lg);padding:16px 18px;margin-bottom:16px;background:linear-gradient(135deg,color-mix(in srgb,var(--accent) 16%,transparent),color-mix(in srgb,var(--accent2) 14%,transparent)),var(--glass);-webkit-backdrop-filter:var(--blur);backdrop-filter:var(--blur);box-shadow:inset 0 .5px 0 var(--edge),var(--shadow)}
+.welcome h3{margin:0 0 8px;font-size:1.15rem}
+.welcome ol{margin:0 0 12px;padding-left:20px;display:grid;gap:6px;font-size:.95rem}
