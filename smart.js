@@ -177,7 +177,42 @@ const Smart = (() => {
     const first = t.match(/^.+?[.!?](\s|$)/)?.[0] || t;
     return first.length > max ? first.slice(0, max - 1) + '…' : first;
   }
-  return { parseEvent, occurrences, parseICS, calendarLink, fmtEvent, parseList, isShopping, preview };
+  // ---------- Smistamento automatico nelle raccolte ----------
+  const KEYS = {
+    spesa: /\b(compra\w*|prend\w* al|supermercato|spesa|latte|pane|uova|frutta|verdur\w*|pasta|riso|carne|pesce|salmone|pollo|formaggio|yogurt|zucchin\w*|pomodor\w*|insalata|detersiv\w*|carta igienica|caffè|biscott\w*|olio|acqua|mele|banan\w*|curcuma|zenzero|legum\w*|farina)\b/g,
+    lavoro: /\b(lavoro|riunion\w*|meeting|call|cliente|clienti|progett\w*|email|mail|ufficio|capo|collegh\w*|presentazion\w*|report|scadenz\w*|consegna|fattur\w*|preventiv\w*|budget|slide|contratto)\b/g,
+    salute: /\b(medic\w*|dottor\w*|visita|ginecolog\w*|farmac\w*|pillol\w*|sintom\w*|dolor\w*|endometriosi|ciclo|esam\w*|analisi|ecografia|terapia|ospedale|dieta|integrator\w*|mal di|crampi|infiammazion\w*|fisioterap\w*)\b/g,
+    promemoria: /\b(ricord\w*|non dimenticar\w*|appuntamento|pagar\w*|bollett\w*|scadenza|rinnov\w*|prenot\w*|chiamar\w*|telefonar\w*|ritirar\w*|portare)\b/g,
+    idee: /\b(idea|idee|potrei|potremmo|sarebbe bello|sarebbe carino|inventar\w*|app|business|creare|immagin\w*|ispirazion\w*)\b/g,
+    brainstorming: /\b(brainstorming|opzion\w*|alternativ\w*|pro e contro|ipotesi|soluzion\w*|proviamo|pensiamo)\b/g,
+    diario: /\b(oggi ho|mi sento|mi sono sentita|giornata|stamattina|stasera|ieri|sono felice|sono triste|sono stanca|ho dormito|grata|gratitudine)\b/g,
+  };
+  // cats = raccolte dell'utente, notes = note già esistenti (per imparare dalle tue abitudini)
+  function classify(text, cats, notes = []) {
+    const t = (text || '').toLowerCase();
+    if (!t.trim()) return null;
+    const words = new Set(t.match(/[a-zà-ÿ]{4,}/g) || []);
+    let best = null, bestScore = 0;
+    for (const c of cats) {
+      const k = c.toLowerCase();
+      let score = 0;
+      const re = KEYS[k]; if (re) score += (t.match(re) || []).length * 2;
+      if (t.includes(k)) score += 3;                              // nome della raccolta detto a voce
+      // parole che usi spesso in quella raccolta
+      const mine = notes.filter(n => n.category === c).slice(0, 40);
+      if (mine.length) {
+        const freq = new Map();
+        for (const n of mine) for (const w of new Set(((n.title || '') + ' ' + (n.text || '')).toLowerCase().match(/[a-zà-ÿ]{4,}/g) || [])) freq.set(w, (freq.get(w) || 0) + 1);
+        for (const w of words) if ((freq.get(w) || 0) >= 2) score += 1;
+      }
+      if (score > bestScore) { bestScore = score; best = c; }
+    }
+    // un evento senza altri indizi va nei promemoria
+    if (bestScore < 2 && parseEvent(text)) best = cats.find(c => /promemoria/i.test(c)) || best;
+    return bestScore >= 2 || best ? best : null;
+  }
+
+  return { parseEvent, occurrences, parseICS, calendarLink, fmtEvent, classify, parseList, isShopping, preview };
 })();
 
 // ---------- Meteo (Open-Meteo, gratuito; posizione arrotondata ~1 km) ----------

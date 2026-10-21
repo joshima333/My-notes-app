@@ -1,9 +1,11 @@
 const $ = id => document.getElementById(id);
 const esc = s => String(s ?? '').replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
 const IS_IOS = /iPad|iPhone|iPod/.test(navigator.userAgent) || (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
+const INBOX = 'In arrivo';
 const DEFAULT_CATS = ['Idee', 'Brainstorming', 'Lavoro', 'Diario', 'Spesa', 'Salute', 'Promemoria'];
 const settings = {
-  get cats() { try { const c = JSON.parse(localStorage.cats); return c.length ? c : DEFAULT_CATS } catch { return DEFAULT_CATS } },
+  // "In arrivo" c'è sempre: è la raccolta neutra per ciò che non si riesce a smistare
+  get cats() { let c; try { c = JSON.parse(localStorage.cats); } catch {} c = c?.length ? c : DEFAULT_CATS; return c.includes(INBOX) ? c : [INBOX, ...c]; },
   set cats(v) { localStorage.cats = JSON.stringify(v); localStorage.catsUpdated = Date.now(); Cloud.schedule && Cloud.schedule(); },
   // iPhone: modello leggero di default (Safari ha poca memoria per le web app)
   get model() { return localStorage.model || (IS_IOS ? 'Xenova/whisper-base' : 'Xenova/whisper-small') },
@@ -21,7 +23,7 @@ async function saveNote(n, quiet) {
 }
 
 // ---------- Raccolte ----------
-const EMOJI = { idee: '💡', brainstorming: '🧠', lavoro: '💼', diario: '📔', spesa: '🛒', salute: '🩺', promemoria: '⏰', studio: '📚', casa: '🏠', viaggi: '✈️', ricette: '🍳', sport: '🏃' };
+const EMOJI = { 'in arrivo': '📥', idee: '💡', brainstorming: '🧠', lavoro: '💼', diario: '📔', spesa: '🛒', salute: '🩺', promemoria: '⏰', studio: '📚', casa: '🏠', viaggi: '✈️', ricette: '🍳', sport: '🏃' };
 const catMeta = () => { try { return JSON.parse(localStorage.catMeta) || {}; } catch { return {}; } };
 const setCatMeta = m => { localStorage.catMeta = JSON.stringify(m); localStorage.catsUpdated = Date.now(); Cloud.schedule(); };
 const emoji = c => catMeta()[c]?.emoji || EMOJI[c.toLowerCase()] || '📁';
@@ -29,9 +31,10 @@ const HUES = [250, 320, 160, 30, 200, 280, 0, 120, 50, 340];
 const hue = c => catMeta()[c]?.hue ?? HUES[Math.abs([...c].reduce((h, ch) => h * 31 + ch.charCodeAt(0) | 0, 7)) % HUES.length];
 const selCat = () => settings.cats.includes(localStorage.selCat) ? localStorage.selCat : settings.cats[0];
 
+let recChoice = 'auto';
 function fillCats() {
-  const sel = selCat();
-  $('chips').innerHTML = settings.cats.map(c =>
+  const sel = recChoice;
+  $('chips').innerHTML = `<button type="button" class="chip auto${sel === 'auto' ? ' on' : ''}" data-cat="auto" role="radio" aria-checked="${sel === 'auto'}">✨ Automatico</button>` + settings.cats.map(c =>
     `<button type="button" class="chip${c === sel ? ' on' : ''}" style="--h:${hue(c)}" data-cat="${esc(c)}" role="radio" aria-checked="${c === sel}">${emoji(c)} ${esc(c)}</button>`
   ).join('') + '<button type="button" class="chip add" id="chipAdd" aria-label="Nuova raccolta">＋</button>';
   $('noteCat').innerHTML = settings.cats.map(c => `<option>${esc(c)}</option>`).join('');
@@ -44,9 +47,9 @@ $('chips').onclick = e => {
     const name = (prompt('Nome della nuova raccolta:') || '').trim();
     if (!name) return;
     if (!settings.cats.includes(name)) settings.cats = [...settings.cats, name];
-    localStorage.selCat = name;
-  } else localStorage.selCat = b.dataset.cat;
-  fillCats(); render();
+    recChoice = name;
+  } else recChoice = b.dataset.cat;
+  fillCats();
 };
 
 // ---------- Recording + private transcription ----------
@@ -124,7 +127,7 @@ async function start() {
   paintPause();
   recBtn().classList.add('on');
   liveEl().classList.remove('hidden');
-  if (!appendMode) { $('recSheet').classList.remove('hidden'); fillCats(); }
+  if (!appendMode) { recChoice = currentView === 'viewNotes' && openFolder && openFolder !== INBOX ? openFolder : 'auto'; $('recSheet').classList.remove('hidden'); fillCats(); }
 }
 
 // ---------- Pausa ----------
@@ -179,12 +182,18 @@ async function stop() {
   liveEl().innerHTML = '';
   if (appendMode) { appendMode = false; return finishAppend(text, audio); }
   if (discardRec) { discardRec = false; return; }
-  if (!text && !audio) return;
-  const pending = !text && !!audio;
-  const items = Smart.isShopping(selCat()) && text ? Smart.parseList(text).map(t => mkItem(t)) : null;
+  if (!text && !audio) return showToast('Non ho sentito niente: nessuna nota salvata');
+  // su iPhone senza testo non c'è modo di trascrivere dopo: probabilmente premuto per sbaglio
+  if (!text && (IS_IOS || dur < 2)) {
+    if (confirm('Non ho sentito nessuna parola.\n\nEliminare questa registrazione vuota?')) return showToast('Registrazione vuota eliminata');
+  }
+  const pending = !text && !!audio && !IS_IOS;
+  const auto = recChoice === 'auto';
+  const category = auto ? (text && Smart.classify(text, settings.cats.filter(c => c !== INBOX), await DB.all())) || INBOX : recChoice;
+  const items = Smart.isShopping(category) && text ? Smart.parseList(text).map(t => mkItem(t)) : null;
   const note = {
-    id: crypto.randomUUID(), created: Date.now(),
-    category: selCat(),
+    id: crypto.randomUUID(), created: Date.now(), placed: auto ? 'auto' : 'manual', fresh: true,
+    category,
     title: text ? makeTitle(text) : 'Nota vocale',
     text, audio, pending, items, duration: dur,
   };
@@ -423,36 +432,29 @@ function renderStats(every) {
   const sel = $('wordsCat'), cur = sel.value;
   sel.innerHTML = '<option value="">Tutte le note</option>' + settings.cats.map(c => `<option${c === cur ? ' selected' : ''}>${esc(c)}</option>`).join('');
   const pool = cur ? every.filter(n => n.category === cur) : every;
-  renderBubbles(Insights.topWords(pool, 22), pool);
+  renderBubbles(Insights.topWords(pool, 30), pool);
 }
 $('wordsCat').onchange = () => { $('wordDetail').classList.add('hidden'); render(); };
 
-// Bolle delle parole: grandezza = quante volte la usi
-const BUBBLE_HUES = [258, 330, 200, 160, 28, 290, 12, 185, 45, 230];
+// Parole più usate: pannello "radar" in stile sci-fi, leggibile come una classifica
 let bubblePool = [];
 function renderBubbles(words, pool) {
   bubblePool = pool;
   const box = $('statWords');
-  if (!words.length || !window.d3) { box.innerHTML = '<p class="muted small center">Registra qualche nota e qui vedrai le parole che usi di più ✨</p>'; return; }
-  const W = box.clientWidth || 340;
-  const max = words[0][1];
-  const circles = words.map(([w, c], i) => ({ w, c, i, r: 18 + Math.sqrt(c / max) * W * 0.13 }));
-  d3.packSiblings(circles);
-  const enc = d3.packEnclose(circles), scale = Math.min(1, (W - 8) / (enc.r * 2));
-  const H = enc.r * 2 * scale;
-  box.style.height = H + 'px';
-  box.innerHTML = circles.map(o => {
-    const d = o.r * 2 * scale, x = (o.x - enc.x) * scale + W / 2 - d / 2, y = (o.y - enc.y) * scale + H / 2 - d / 2;
-    const h = BUBBLE_HUES[o.i % BUBBLE_HUES.length], fs = Math.min(d * .3, d * .84 / (o.w.length * .6));
-    return `<button type="button" class="bubble" data-w="${esc(o.w)}" style="--h:${h};width:${d}px;height:${d}px;left:${x}px;top:${y}px;--delay:${o.i * 35}ms">
-      <span class="bw" style="font-size:${fs}px">${esc(o.w)}</span>${d > 44 ? `<span class="bc">${o.c}×</span>` : ''}</button>`;
-  }).join('');
+  if (!words.length) { box.innerHTML = '<p class="hudempty">// NESSUN SEGNALE — registra qualche nota</p>'; return; }
+  const max = words[0][1], total = words.reduce((a, w) => a + w[1], 0);
+  box.innerHTML = `<div class="hudhead"><span>ANALISI LESSICALE</span><span>${words.length} TERMINI · ${total} OCCORRENZE</span></div>` +
+    words.slice(0, 15).map(([w, c], i) => `<button type="button" class="hudrow" data-w="${esc(w)}" style="--p:${(c / max * 100).toFixed(1)}%;--d:${i * 45}ms">
+      <span class="hudi">${String(i + 1).padStart(2, '0')}</span>
+      <span class="hudw">${esc(w)}</span>
+      <span class="hudbar"><i></i></span>
+      <span class="hudc">${c}</span></button>`).join('');
 }
 $('statWords').onclick = e => {
-  const b = e.target.closest('.bubble'); if (!b) return;
+  const b = e.target.closest('.hudrow'); if (!b) return;
   const w = b.dataset.w, root = w.length > 4 ? w.replace(/[aeiou]$/, '') : w;
   const was = b.classList.contains('sel');
-  document.querySelectorAll('.bubble').forEach(x => x.classList.toggle('sel', x === b && !was));
+  document.querySelectorAll('.hudrow').forEach(x => x.classList.toggle('sel', x === b && !was));
   if (was) return $('wordDetail').classList.add('hidden');
   const re = new RegExp(`\\b${root.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}[a-zà-ÿ]?\\b`, 'i');
   const hits = bubblePool.filter(n => re.test(`${n.title} ${n.text}`));
@@ -611,7 +613,7 @@ async function setArchived(n, on) {
 
 // ---------- Schede in basso ----------
 let currentView = 'viewNotes';
-document.querySelector('.tabs').onclick = e => {
+document.querySelector('.tabbar').onclick = e => {
   const t = e.target.closest('.tab'); if (!t) return;
   if (t.dataset.view === currentView && currentView === 'viewNotes') { openFolder = null; $('search').value = ''; filter = ''; document.querySelectorAll('.fchip').forEach(x => x.classList.toggle('on', !x.dataset.f)); }
   currentView = t.dataset.view;
@@ -789,11 +791,15 @@ $('moveList').onclick = async e => {
 };
 
 // ---------- Nota scritta ----------
-document.addEventListener('click', e => { if (e.target.closest('[data-write]')) $('btnWrite').onclick(); });
+document.addEventListener('click', e => {
+  if (e.target.closest('[data-write]')) $('btnWrite').onclick();
+  if (e.target.closest('[data-rec]') && !recording) start();
+});
 $('btnWrite').onclick = async () => {
   // durante una registrazione: non buttare via nulla, salva e passa alla scrittura
   if (recording && !appendMode) { await stop(); setTimeout(() => $('noteDlg').open && $('noteText').focus(), 250); return; }
-  openNote({ id: crypto.randomUUID(), created: Date.now(), category: selCat(), title: '', text: '', audio: null, draft: true });
+  const inFolder = currentView === 'viewNotes' && openFolder && openFolder !== INBOX;
+  openNote({ id: crypto.randomUUID(), created: Date.now(), category: inFolder ? openFolder : INBOX, placed: inFolder ? 'manual' : 'auto', title: '', text: '', audio: null, draft: true, fresh: true });
   setTimeout(() => $('noteText').focus(), 150);
 };
 
@@ -870,6 +876,7 @@ function openNote(n) {
   renderChecklist();
   renderEvent();
   renderPhotos();
+  renderPlaced();
   setToolLabels();
   $('noteMeta').textContent = n.draft ? 'Nuova nota' : `${fmtDate(n.created)}${n.archived ? ' · Archiviata' : ''}`;
   caret = null;
@@ -1049,12 +1056,29 @@ $('noteDlg').addEventListener('close', async () => {
   const changed = current && ($('noteTitle').value !== (current.title || '') || $('noteText').value !== (current.text || '') || $('noteCat').value !== current.category);
   if (!closeHandled && changed) await saveCurrentFromForm();
   closeHandled = false;
+  if (current?.fresh && !current.draft && await DB.get(current.id)) {
+    delete current.fresh; await DB.put(current);
+    showToast(`Salvata in ${emoji(current.category)} ${current.category}`);
+  }
   // una nota scritta lasciata vuota non viene tenuta
   if (current?.draft && !current.text?.trim() && !current.title?.trim() && !liveItems(current).length && !current.photos?.length) {
     if (await DB.get(current.id)) { await DB.del(current.id); Cloud.markDeleted(current.id, current.photos); }
     render();
   }
 });
+function renderPlaced() {
+  const n = current, show = n.fresh && !n.draft;
+  $('placed').classList.toggle('hidden', !show);
+  if (!show) return;
+  $('placed').style.setProperty('--h', hue(n.category));
+  $('placed').innerHTML = `<span>${n.placed === 'auto' ? (n.category === INBOX ? '📥 Non ho capito dove metterla: è in' : '✨ Messa in automatico in') : 'Salvata in'} <b>${emoji(n.category)} ${esc(n.category)}</b></span><button type="button" class="link" id="placedChange">Cambia</button>`;
+}
+$('placed').onclick = e => {
+  if (e.target.id !== 'placedChange') return;
+  const sel = $('noteCat'); sel.focus();
+  try { sel.showPicker(); } catch { sel.click(); }
+};
+$('noteCat').addEventListener('change', () => { if (current) { current.placed = 'manual'; if (current.fresh) { current.category = $('noteCat').value; renderPlaced(); } } });
 function setToolLabels() {
   $('btnPinNote').innerHTML = `<span>${current.pinned ? '📍' : '📌'}</span><small>${current.pinned ? 'Sgancia' : 'Fissa'}</small>`;
   $('btnDone').innerHTML = `<span>${current.archived ? '↩️' : '✓'}</span><small>${current.archived ? 'Ripristina' : 'Fatto'}</small>`;
@@ -1102,7 +1126,11 @@ const exportText = () => `${$('noteTitle').value}\n[${$('noteCat').value}]\n\n${
 
 let closeHandled = false;
 async function saveCurrentFromForm() {
-  const text = $('noteText').value, category = $('noteCat').value;
+  const text = $('noteText').value;
+  let category = $('noteCat').value;
+  if (current.fresh && current.placed === 'auto' && category === INBOX && text.trim()) {
+    category = Smart.classify(text, settings.cats.filter(c => c !== INBOX), await DB.all()) || INBOX;
+  }
   if (Smart.isShopping(category) && !current.shared && (text !== current.text || !current.items)) {
     const old = new Map(liveItems(current).map(i => [i.t.toLowerCase(), i]));
     const keep = Smart.parseList(text).map(t => old.get(t.toLowerCase()) || mkItem(t));

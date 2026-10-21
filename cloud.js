@@ -36,8 +36,17 @@ const Cloud = (() => {
   // 'off' | 'need-login' | 'ready'
   api.init = async () => {
     if (!enabled) return 'off';
-    const { data } = await sb.auth.getSession();
-    user = data.session?.user || null;
+    // non aspettare la rete: se senza internet, usa la sessione salvata sul telefono
+    const timeout = new Promise(r => setTimeout(() => r(null), 1200));
+    const res = await Promise.race([sb.auth.getSession(), timeout]);
+    user = res?.data?.session?.user || null;
+    if (!res) {
+      try {
+        const k = Object.keys(localStorage).find(x => /^sb-.*-auth-token$/.test(x));
+        user = JSON.parse(localStorage[k])?.user || null;
+      } catch { user = null; }
+      sb.auth.getSession().then(r => { if (r.data.session?.user) user = r.data.session.user; });
+    }
     key = await DB.getMeta('key');
     if (!user || !key || (await DB.getMeta('keyUser')) !== user.id) { key = null; return 'need-login'; }
     return 'ready';
