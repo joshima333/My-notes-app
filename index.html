@@ -4,7 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
 <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' https://cdn.jsdelivr.net 'wasm-unsafe-eval'; worker-src 'self' blob: https://cdn.jsdelivr.net; connect-src 'self' https://cdn.jsdelivr.net https://tessdata.projectnaptha.com https://huggingface.co https://*.huggingface.co https://*.hf.co https://*.supabase.co wss://*.supabase.co https://api.open-meteo.com; img-src 'self' data: blob:; media-src 'self' blob:; style-src 'self' 'unsafe-inline'">
-<meta name="theme-color" content="#c9d6ff">
+<meta name="theme-color" content="#eef0f7">
 <meta name="apple-mobile-web-app-capable" content="yes">
 <title>Note Vocali</title>
 <link rel="manifest" href="manifest.json">
@@ -15,6 +15,11 @@
 </head>
 <body>
 <div class="bg" aria-hidden="true"></div>
+
+<div id="miniBar" class="minibar" aria-hidden="true">
+  <button id="miniBack" type="button" class="navback hidden">‹ Raccolte</button>
+  <span id="miniTitle"></span>
+</div>
 
 <header class="top">
   <div class="topbar">
@@ -113,11 +118,14 @@
 
 <!-- Barra in basso -->
 <nav class="tabbar" role="tablist">
-  <button class="tab on" data-view="viewNotes" role="tab" aria-label="Note"><span class="ti"><svg viewBox="0 0 24 24" width="24" height="24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="4" y="3" width="16" height="18" rx="3"/><path d="M8 8h8M8 12h8M8 16h5"/></svg></span><span class="tl">Note</span></button>
-  <button class="tab" data-view="viewCal" role="tab" aria-label="Calendario"><span class="ti"><svg viewBox="0 0 24 24" width="24" height="24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="5" width="18" height="16" rx="3"/><path d="M3 10h18M8 3v4M16 3v4"/><circle cx="12" cy="15" r="1.3" fill="currentColor"/></svg></span><span class="tl">Calendario</span></button>
-  <div class="fabslot"><button id="btnRec" class="fab" aria-label="Registra una nota vocale"><span class="mic"><svg viewBox="0 0 24 24" width="28" height="28" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="9" y="3" width="6" height="11" rx="3" fill="currentColor"/><path d="M5.5 11a6.5 6.5 0 0 0 13 0M12 17.5V21"/></svg></span></button></div>
-  <button class="tab" data-view="viewStats" role="tab" aria-label="Statistiche"><span class="ti"><svg viewBox="0 0 24 24" width="24" height="24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 20V10M10 20V4M16 20v-7M22 20H2"/></svg></span><span class="tl">Statistiche</span></button>
-  <button class="tab" data-view="viewArch" role="tab" aria-label="Archivio"><span class="ti"><svg viewBox="0 0 24 24" width="24" height="24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="4" width="18" height="5" rx="1.5"/><path d="M5 9v9a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V9M10 13h4"/></svg></span><span class="tl">Archivio</span></button>
+  <div class="tabs">
+    <span class="lens" aria-hidden="true"></span>
+    <button class="tab on" data-view="viewNotes" role="tab" aria-label="Note"><span class="ti"><svg viewBox="0 0 24 24" width="24" height="24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="4" y="3" width="16" height="18" rx="3"/><path d="M8 8h8M8 12h8M8 16h5"/></svg></span><span class="tl">Note</span></button>
+    <button class="tab" data-view="viewCal" role="tab" aria-label="Calendario"><span class="ti"><svg viewBox="0 0 24 24" width="24" height="24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="5" width="18" height="16" rx="3"/><path d="M3 10h18M8 3v4M16 3v4"/><circle cx="12" cy="15" r="1.3" fill="currentColor"/></svg></span><span class="tl">Calendario</span></button>
+    <button class="tab" data-view="viewStats" role="tab" aria-label="Statistiche"><span class="ti"><svg viewBox="0 0 24 24" width="24" height="24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 20V10M10 20V4M16 20v-7M22 20H2"/></svg></span><span class="tl">Statistiche</span></button>
+    <button class="tab" data-view="viewArch" role="tab" aria-label="Archivio"><span class="ti"><svg viewBox="0 0 24 24" width="24" height="24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="4" width="18" height="5" rx="1.5"/><path d="M5 9v9a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V9M10 13h4"/></svg></span><span class="tl">Archivio</span></button>
+  </div>
+  <button id="btnRec" class="fab" aria-label="Registra una nota vocale"><span class="mic"><svg viewBox="0 0 24 24" width="28" height="28" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="9" y="3" width="6" height="11" rx="3" fill="currentColor"/><path d="M5.5 11a6.5 6.5 0 0 0 13 0M12 17.5V21"/></svg></span></button>
 </nav>
 
 <!-- Pannello registrazione -->

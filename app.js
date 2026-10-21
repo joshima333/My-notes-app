@@ -619,7 +619,7 @@ document.querySelector('.tabbar').onclick = e => {
   currentView = t.dataset.view;
   document.querySelectorAll('.tab').forEach(x => x.classList.toggle('on', x === t));
   for (const v of ['viewNotes', 'viewCal', 'viewStats', 'viewArch']) $(v).classList.toggle('hidden', v !== currentView);
-  closeSwipe(); render(); renderHeader(); scrollTo({ top: 0 });
+  closeSwipe(); render(); renderHeader(); moveLens(); scrollTo({ top: 0 }); syncMiniBar();
   if (currentView === 'viewCal') refreshCalendars();
 };
 
@@ -627,6 +627,24 @@ $('folders').onclick = e => {
   const f = e.target.closest('.folder'); if (!f) return;
   goFolder(f.dataset.cat);
 };
+// ---------- Barra in alto compatta (compare scorrendo) + lente sulla scheda attiva ----------
+function syncMiniBar() {
+  const show = scrollY > 70;
+  $('miniBar').classList.toggle('show', show);
+  $('miniTitle').textContent = $('hello').textContent;
+  $('miniBack').classList.toggle('hidden', $('navBack').classList.contains('hidden'));
+}
+addEventListener('scroll', syncMiniBar, { passive: true });
+$('miniBack').onclick = () => $('navBack').click();
+function moveLens() {
+  const on = document.querySelector('.tab.on'), lens = document.querySelector('.lens');
+  if (!on || !lens) return;
+  lens.style.width = on.offsetWidth + 'px';
+  lens.style.transform = `translateX(${on.offsetLeft}px)`;
+}
+addEventListener('resize', moveLens);
+requestAnimationFrame(moveLens);
+
 // ---------- Navigazione: Indietro come su iPhone (freccia, gesto dal bordo, tasto Indietro del telefono) ----------
 function swipeTip() {
   if (localStorage.swipeTip) return;
@@ -1239,6 +1257,7 @@ function renderHeader() {
   $('hello').textContent = inFolder ? `${emoji(openFolder)} ${openFolder}` : VIEW_TITLES[currentView] || (name ? `Ciao, ${name} 👋` : 'Ciao 👋');
   $('navBack').classList.toggle('hidden', !inFolder);
   $('today').classList.toggle('hidden', !!inFolder);
+  if (typeof syncMiniBar === 'function') syncMiniBar();
   const d = new Date().toLocaleDateString('it-IT', { weekday: 'long', day: 'numeric', month: 'long' });
   $('today').textContent = d[0].toUpperCase() + d.slice(1);
 }
