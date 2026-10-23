@@ -471,3 +471,6 @@ label.addbtn{cursor:pointer}
   background:linear-gradient(var(--glass-bar),var(--glass-bar)) padding-box,
              linear-gradient(140deg,var(--rim-a),var(--rim-b) 40%,var(--rim-b) 60%,color-mix(in srgb,var(--rim-a) 60%,transparent)) border-box;
   -webkit-backdrop-filter:blur(30px) saturate(210%);backdrop-filter:blur(30px) saturate(210%)}
+.notevent{justify-self:start;color:var(--muted);padding:6px 0 0;font-weight:700}
+.evignored{font-size:.82rem;color:var(--muted);padding:2px 4px}
+.evignored .link{padding:2px}

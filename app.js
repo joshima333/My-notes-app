@@ -304,7 +304,18 @@ function notePreview(n) {
 }
 
 // Evento collegato a una nota (data calcolata rispetto al giorno in cui è stata creata)
-const noteEvent = n => n.text ? Smart.parseEvent(n.text, new Date(n.created)) : null;
+// Evento collegato a una nota. Prudenza: niente evento se l'hai escluso a mano,
+// se è una ricorrenza giornaliera senza orario ("mamma ogni giorno"),
+// o se è una nota di diario senza un orario preciso.
+function eventFromText(text, created, category, noEvent) {
+  if (noEvent || !text) return null;
+  const ev = Smart.parseEvent(text, new Date(created));
+  if (!ev) return null;
+  if (ev.repeat?.freq === 'DAILY' && ev.allDay) return null;
+  if (/diario/i.test(category || '') && ev.allDay) return null;
+  return ev;
+}
+const noteEvent = n => eventFromText(n.text, n.created, n.category, n.noEvent);
 const startOfToday = () => { const d = new Date(); d.setHours(0, 0, 0, 0); return d; };
 
 // Archivia da sola gli eventi già passati (dal giorno dopo)
@@ -1118,13 +1129,26 @@ for (const ev of ['click', 'keyup', 'select']) $('noteText').addEventListener(ev
 // Evento da calendario
 let currentEvent = null;
 function renderEvent() {
-  currentEvent = Smart.parseEvent($('noteText').value, new Date(current.created));
+  const text = $('noteText').value, cat = $('noteCat').value;
+  currentEvent = eventFromText(text, current.created, cat, current.noEvent);
+  // evento escluso a mano: mostra come riattivarlo
+  const ignored = current.noEvent && eventFromText(text, current.created, cat, false);
+  $('evIgnored').classList.toggle('hidden', !ignored);
   $('eventBox').classList.toggle('hidden', !currentEvent);
   if (!currentEvent) return;
   $('evTitle').textContent = currentEvent.title;
   $('evWhen').textContent = Smart.fmtEvent(currentEvent);
 }
 $('noteText').addEventListener('input', () => renderEvent());
+$('noteCat').addEventListener('change', () => renderEvent());
+$('btnNotEvent').onclick = async () => {
+  syncFromForm(); current.noEvent = true; renderEvent();
+  await saveNote(current); showToast('Ok, non è un evento');
+};
+$('btnYesEvent').onclick = async () => {
+  syncFromForm(); delete current.noEvent; renderEvent();
+  await saveNote(current); showToast('📅 Di nuovo un evento');
+};
 $('eventBox').onclick = e => {
   const b = e.target.closest('[data-cal]'); if (!b || !currentEvent) return;
   const url = Smart.calendarLink(b.dataset.cal, currentEvent, $('noteText').value);
