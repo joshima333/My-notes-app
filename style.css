@@ -474,3 +474,6 @@ label.addbtn{cursor:pointer}
 .notevent{justify-self:start;color:var(--muted);padding:6px 0 0;font-weight:700}
 .evignored{font-size:.82rem;color:var(--muted);padding:2px 4px}
 .evignored .link{padding:2px}
+/* le schede restano sempre agganciate al fondo dello schermo, anche se la pagina è scorsa */
+dialog,dialog.sheet{position:fixed}
+dialog.viewer{position:fixed}
