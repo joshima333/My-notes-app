@@ -150,6 +150,10 @@ const Smart = (() => {
       return `https://outlook.live.com/calendar/0/deeplink/compose?path=/calendar/action/compose&rru=addevent&subject=${encodeURIComponent(ev.title)}&${q}&body=${encodeURIComponent(details)}`;
     }
     // Apple / altri: file .ics
+    return 'data:text/calendar;charset=utf-8,' + encodeURIComponent(icsText(ev, details));
+  }
+  function icsText(ev, details = '') {
+    const end = endOf(ev);
     const esc = s => s.replace(/[\\,;]/g, m => '\\' + m).replace(/\n/g, '\\n');
     const ics = ['BEGIN:VCALENDAR', 'VERSION:2.0', 'PRODID:-//Note Vocali//IT', 'BEGIN:VEVENT',
       `UID:${crypto.randomUUID()}@notevocali`, `DTSTAMP:${ymdhms(new Date())}`,
@@ -157,7 +161,7 @@ const Smart = (() => {
       ev.allDay ? `DTEND;VALUE=DATE:${ymd(end)}` : `DTEND:${ymdhms(end)}`,
       `SUMMARY:${esc(ev.title)}`, `DESCRIPTION:${esc(details)}`, ...(ev.repeat ? [rrule(ev.repeat)] : []),
       'BEGIN:VALARM', 'ACTION:DISPLAY', `DESCRIPTION:${esc(ev.title)}`, ev.allDay ? 'TRIGGER:-PT15H' : 'TRIGGER:-PT30M', 'END:VALARM', 'END:VEVENT', 'END:VCALENDAR'].join('\r\n');
-    return 'data:text/calendar;charset=utf-8,' + encodeURIComponent(ics);
+    return ics;
   }
   const REP_TXT = r => r.freq === 'DAILY' ? 'ogni giorno' : r.freq === 'MONTHLY' ? 'ogni mese' : r.freq === 'YEARLY' ? 'ogni anno' : 'ogni ' + (r.days || []).map(d => DAYS[d]).join(' e ');
   const fmtEvent = ev => (ev.repeat ? `🔁 ${REP_TXT(ev.repeat)}, dal ` : '') + ev.start.toLocaleDateString('it-IT', { weekday: 'long', day: 'numeric', month: 'long' }) +
@@ -212,7 +216,7 @@ const Smart = (() => {
     return bestScore >= 2 || best ? best : null;
   }
 
-  return { parseEvent, occurrences, parseICS, calendarLink, fmtEvent, classify, parseList, isShopping, preview };
+  return { parseEvent, occurrences, parseICS, calendarLink, icsText, fmtEvent, classify, parseList, isShopping, preview };
 })();
 
 // ---------- Meteo (Open-Meteo, gratuito; posizione arrotondata ~1 km) ----------

@@ -1149,11 +1149,32 @@ $('btnYesEvent').onclick = async () => {
   syncFromForm(); delete current.noEvent; renderEvent();
   await saveNote(current); showToast('📅 Di nuovo un evento');
 };
+// Aggiungi al calendario del telefono: iPhone vuole il file da un indirizzo internet vero,
+// quindi passa dalla funzione "calendario" di Supabase e mostra la schermata nativa "Aggiungi evento".
+const openLink = url => { const a = document.createElement('a'); a.href = url; a.target = '_blank'; a.rel = 'noopener'; document.body.appendChild(a); a.click(); a.remove(); };
+const toB64url = str => btoa(unescape(encodeURIComponent(str))).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
+async function addToPhoneCalendar(ev, details) {
+  const ics = Smart.icsText(ev, (details || '').slice(0, 400));
+  const base = window.CONFIG?.supabaseUrl;
+  if (base) {
+    const url = `${base}/functions/v1/calendario?ics=${toB64url(ics)}`;
+    try {
+      const r = await fetch(url, { method: 'GET', cache: 'no-store' });
+      if (r.ok) return openLink(url);
+    } catch {}
+  }
+  // senza la funzione: su Android/computer il file si apre col calendario; su iPhone si prova con Condividi
+  const file = new File([ics], 'evento.ics', { type: 'text/calendar' });
+  if (IS_IOS && navigator.canShare?.({ files: [file] })) {
+    try { await navigator.share({ files: [file], title: ev.title }); return; } catch {}
+  }
+  if (IS_IOS) return alert('Per aggiungere eventi al calendario di iPhone serve attivare la funzione "calendario" su Supabase (te l\'ho spiegato in chat). Intanto puoi usare Google o Outlook qui sotto.');
+  const a = document.createElement('a'); a.href = URL.createObjectURL(file); a.download = 'evento.ics'; a.click();
+}
 $('eventBox').onclick = e => {
   const b = e.target.closest('[data-cal]'); if (!b || !currentEvent) return;
-  const url = Smart.calendarLink(b.dataset.cal, currentEvent, $('noteText').value);
-  if (b.dataset.cal === 'apple') { const a = document.createElement('a'); a.href = url; a.download = 'evento.ics'; a.click(); }
-  else window.open(url, '_blank');
+  if (b.dataset.cal === 'phone') return addToPhoneCalendar(currentEvent, $('noteText').value);
+  openLink(Smart.calendarLink(b.dataset.cal, currentEvent, $('noteText').value));
 };
 $('btnLoadAudio').onclick = async () => {
   const b = $('btnLoadAudio'); b.disabled = true; b.textContent = '⏳ Scarico…';

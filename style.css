@@ -477,3 +477,6 @@ label.addbtn{cursor:pointer}
 /* le schede restano sempre agganciate al fondo dello schermo, anche se la pagina è scorsa */
 dialog,dialog.sheet{position:fixed}
 dialog.viewer{position:fixed}
+.addcal{justify-self:start;margin-top:6px;padding:10px 16px;border-radius:999px;font-weight:750;font-size:.92rem;color:#fff;
+  background:linear-gradient(180deg,color-mix(in srgb,var(--accent) 85%,#fff),var(--accent));box-shadow:inset 0 1px 0 rgba(255,255,255,.45),0 6px 16px color-mix(in srgb,var(--accent) 30%,transparent)}
+.evbtns span{margin-right:2px}
