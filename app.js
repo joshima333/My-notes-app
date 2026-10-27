@@ -1137,6 +1137,8 @@ function renderEvent() {
   $('eventBox').classList.toggle('hidden', !currentEvent);
   if (!currentEvent) return;
   $('evTitle').textContent = currentEvent.title;
+  $('evMon').textContent = currentEvent.start.toLocaleDateString('it-IT', { month: 'short' }).replace('.', '');
+  $('evDay').textContent = currentEvent.start.getDate();
   $('evWhen').textContent = Smart.fmtEvent(currentEvent);
 }
 $('noteText').addEventListener('input', () => renderEvent());

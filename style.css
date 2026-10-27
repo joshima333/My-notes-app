@@ -480,3 +480,6 @@ dialog.viewer{position:fixed}
 .addcal{justify-self:start;margin-top:6px;padding:10px 16px;border-radius:999px;font-weight:750;font-size:.92rem;color:#fff;
   background:linear-gradient(180deg,color-mix(in srgb,var(--accent) 85%,#fff),var(--accent));box-shadow:inset 0 1px 0 rgba(255,255,255,.45),0 6px 16px color-mix(in srgb,var(--accent) 30%,transparent)}
 .evbtns span{margin-right:2px}
+.evicon{flex:0 0 46px;height:50px;border-radius:12px;overflow:hidden;display:grid;grid-template-rows:16px 1fr;text-align:center;background:var(--glass-thick);box-shadow:0 2px 8px rgba(0,0,0,.08)}
+.evicon small{background:var(--rec);color:#fff;font-size:.62rem;font-weight:800;text-transform:uppercase;line-height:16px}
+.evicon b{font-size:1.3rem;line-height:34px}
