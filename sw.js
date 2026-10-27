@@ -1,6 +1,6 @@
 // Apertura istantanea anche senza internet: l'app parte dalla copia salvata sul telefono
 // e si aggiorna in background (la versione nuova arriva alla riapertura successiva).
-const C = 'note-vocali-v26';
+const C = 'note-vocali-v27';
 const F = ['./', 'index.html', 'theme.js', 'style.css', 'app.js', 'manifest.json', 'icon.svg', 'whisper-worker.js',
   'db.js', 'smart.js', 'insights.js', 'cloud.js', 'config.js', 'vendor/supabase.js', 'vendor/sortable.min.js'];
 self.addEventListener('install', e => { e.waitUntil(caches.open(C).then(c => c.addAll(F))); self.skipWaiting(); });

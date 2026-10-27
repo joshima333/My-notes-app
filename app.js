@@ -299,7 +299,7 @@ function notePreview(n) {
     const done = its.filter(i => i.done).length;
     return (n.shared ? '👥 ' : '') + `✅ ${done}/${its.length} · ` + esc(its.filter(i => !i.done).map(i => i.t).join(', ') || 'tutto preso!');
   }
-  const ev = Smart.parseEvent(n.text, new Date(n.created));
+  const ev = noteEvent(n);
   return (ev ? `📅 ${esc(Smart.fmtEvent(ev))} · ` : '') + esc(Smart.preview(n.text));
 }
 
@@ -1438,4 +1438,15 @@ checkLocalSR().then(ok => {
   (await DB.all()).filter(n => n.pending && n.audio).forEach(transcribe);
 })();
 document.addEventListener('visibilitychange', () => { if (!document.hidden && !locked) Cloud.sync(); });
-if ('serviceWorker' in navigator) navigator.serviceWorker.register('sw.js');
+// Aggiornamenti: appena è pronta una versione nuova dell'app, la carica subito (una volta sola)
+if ('serviceWorker' in navigator) {
+  const hadController = !!navigator.serviceWorker.controller;
+  let reloaded = false;
+  navigator.serviceWorker.addEventListener('controllerchange', () => {
+    if (!hadController || reloaded || recording || document.querySelector('dialog[open]')) return;
+    reloaded = true; location.reload();
+  });
+  navigator.serviceWorker.register('sw.js').then(reg => {
+    document.addEventListener('visibilitychange', () => { if (!document.hidden) reg.update().catch(() => {}); });
+  });
+}
